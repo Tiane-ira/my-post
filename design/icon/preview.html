@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>mypost · 图标设计提案</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #f6f8fa; color: #333639; font-family: "Segoe UI", "Microsoft YaHei", sans-serif; }
+    main { max-width: 1000px; margin: auto; padding: 56px; }
+    .eyebrow { color: #85878a; font-size: 12px; letter-spacing: 2px; }
+    h1 { margin: 12px 0; font-size: 30px; font-weight: 600; letter-spacing: -1px; }
+    .description { margin: 0 0 32px; font-size: 14px; color: #66686a; line-height: 1.8; }
+    .panels { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    .panel { position: relative; display: flex; align-items: center; justify-content: center; min-height: 290px; border-radius: 20px; background: white; border: 1px solid #e6e7e8; }
+    .dark { background: #181818; border-color: #262628; }
+    .label { position: absolute; top: 20px; left: 24px; color: #85878a; font-size: 12px; }
+    .hero { width: 128px; height: 128px; }
+    .bottom { margin-top: 20px; background: white; border: 1px solid #e6e7e8; border-radius: 16px; padding: 24px; display: flex; align-items: center; justify-content: space-between; }
+    .brand { display: flex; gap: 12px; align-items: center; font-size: 24px; font-weight: 650; letter-spacing: -1px; }
+    .brand img { width: 40px; height: 40px; }
+    .sizes { display: flex; align-items: center; gap: 24px; }
+    .size { display: flex; flex-direction: column; align-items: center; gap: 12px; font-size: 10px; color: #85878a; }
+    footer { margin-top: 24px; font-size: 12px; color: #85878a; }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="eyebrow">MYPOST / LOCAL API</div>
+    <h1>本地 API 工作台。</h1>
+    <p class="description">设备轮廓体现本地桌面工具，居中放大的 API 字样点明用途。纯橙底与白色线条，简洁清晰。</p>
+    <div class="panels">
+      <div class="panel"><span class="label">浅色背景</span><img class="hero" src="mypost-icon.svg" alt="mypost 图标浅色背景预览"></div>
+      <div class="panel dark"><span class="label">深色背景</span><img class="hero" src="mypost-icon.svg" alt="mypost 图标深色背景预览"></div>
+    </div>
+    <div class="bottom">
+      <div class="brand"><img src="mypost-icon.svg" alt="">mypost</div>
+      <div class="sizes">
+        <div class="size"><img src="mypost-icon.svg" width="16" height="16" alt="16 像素图标"><span>16 px</span></div>
+        <div class="size"><img src="mypost-icon.svg" width="24" height="24" alt="24 像素图标"><span>24 px</span></div>
+        <div class="size"><img src="mypost-icon.svg" width="32" height="32" alt="32 像素图标"><span>32 px</span></div>
+        <div class="size"><img src="mypost-icon.svg" width="48" height="48" alt="48 像素图标"><span>48 px</span></div>
+      </div>
+    </div>
+    <footer>SVG 矢量 · #FA8C16 / #FFFFFF · 无渐变 · 无阴影</footer>
+  </main>
+</body>
+</html>

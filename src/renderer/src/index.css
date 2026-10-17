@@ -1,0 +1,106 @@
+@import "tailwindcss";
+
+/* Shared semantic colors for mypost workspace theme tokens. */
+@theme inline {
+  --color-canvas: var(--bg-primary);
+  --color-surface: var(--bg-card);
+  --color-subtle: var(--bg-secondary);
+  --color-sidebar: var(--bg-sidebar);
+  --color-rail: var(--bg-rail);
+  --color-hover: var(--bg-hover);
+  --color-line: var(--border-color);
+  --color-foreground: var(--text-primary);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-gray-100: var(--text-primary);
+  --color-gray-200: var(--text-primary);
+  --color-gray-300: var(--text-secondary);
+  --color-gray-400: var(--text-secondary);
+  --color-gray-500: var(--text-muted);
+  --color-gray-600: var(--text-muted);
+  --color-emerald-300: var(--status-success);
+  --color-emerald-400: var(--status-success);
+  --color-amber-300: var(--status-warning);
+  --color-amber-400: var(--status-warning);
+  --color-blue-300: var(--status-info);
+  --color-blue-400: var(--status-info);
+  --color-rose-300: var(--status-error);
+  --color-rose-400: var(--status-error);
+  --color-purple-300: var(--status-purple);
+  --color-purple-400: var(--status-purple);
+  --color-teal-400: var(--status-teal);
+}
+
+@layer base {
+  :root {
+    color-scheme: light;
+    --bg-primary: #ffffff;
+    --bg-secondary: #f6f8fa;
+    --bg-card: #ffffff;
+    --bg-sidebar: #f9fafb;
+    --bg-rail: #f1f3f6;
+    --bg-hover: #eef1f4;
+    --border-color: #e6e7e8;
+    --text-primary: #333639;
+    --text-secondary: #66686a;
+    --text-muted: #85878a;
+    --accent: #fa8c16;
+    --accent-hover: #e77908;
+    --status-success: #168767;
+    --status-warning: #ad650b;
+    --status-info: #3768c9;
+    --status-error: #d83b40;
+    --status-purple: #7958d6;
+    --status-teal: #16858b;
+    --scrollbar-thumb: #dcdfe2;
+    --scrollbar-hover: #c4c8ce;
+  }
+
+  html.dark {
+    color-scheme: dark;
+    --bg-primary: #121212;
+    --bg-secondary: #1c1c1e;
+    --bg-card: #181818;
+    --bg-sidebar: #1c1c1e;
+    --bg-rail: #262628;
+    --bg-hover: #303033;
+    --border-color: #323235;
+    --text-primary: #ededed;
+    --text-secondary: #b8b8bb;
+    --text-muted: #929297;
+    --accent: #fa8c16;
+    --accent-hover: #ffa333;
+    --status-success: #42cba4;
+    --status-warning: #efb759;
+    --status-info: #78a4f5;
+    --status-error: #fb7c85;
+    --status-purple: #bb9af5;
+    --status-teal: #62cdd0;
+    --scrollbar-thumb: #3e3e42;
+    --scrollbar-hover: #55555c;
+  }
+
+  body {
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "WenQuanYi Micro Hei", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  code, pre, .font-mono, textarea, input.font-mono {
+    font-family: "Cascadia Code", "Fira Code", "JetBrains Mono", Consolas, Monaco, "Courier New", monospace;
+  }
+
+  input, select, textarea { accent-color: var(--accent); }
+  input::placeholder, textarea::placeholder { color: var(--text-muted); }
+  select option { background-color: var(--bg-card); color: var(--text-primary); }
+  ::selection { background: color-mix(in srgb, var(--accent) 24%, transparent); }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-hover); }
+}
+
+.drag-region { -webkit-app-region: drag; }
+.no-drag { -webkit-app-region: no-drag; }

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" fill="none">
+  <title>mypost — Local API workspace</title>
+  <rect width="64" height="64" rx="16" fill="#FA8C16"/>
+  <g stroke="white" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="11" y="11" width="42" height="36" rx="4" stroke-width="2.8"/>
+    <!-- Outlined lettering keeps the API label independent of installed fonts. -->
+    <path d="M17.5 35L22.5 23L27.5 35M19.2 31H25.8M32 35V23H36.5C42.5 23 42.5 30 36.5 30H32M46.5 23V35" stroke-width="2.7"/>
+    <path d="M32 47V53M23 53H41" stroke-width="2.8"/>
+  </g>
+</svg>

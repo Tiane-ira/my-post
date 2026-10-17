@@ -1,0 +1,445 @@
+import { app, BrowserWindow, ipcMain, dialog, shell, Menu } from 'electron';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+import axios from 'axios';
+import http from 'http';
+import https from 'https';
+import { FileDB } from './fileDB';
+import { NetworkEngine } from './network';
+import { MockServer } from './mockServer';
+import { DocShareServer, DocShareRecord } from './docShareServer';
+import { ApiDetail, ApiTreeNode, EnvironmentInfo, GlobalParams, ResponseExample } from '../common/types';
+import { MainDocParser } from './docParser';
+
+const currentDir = typeof __dirname !== 'undefined' ? __dirname : path.dirname(fileURLToPath(import.meta.url));
+
+app.setName('mypost');
+app.setAppUserModelId('com.mypost.desktop');
+
+// Linux / Debian 11 compatibility: handle unprivileged user namespaces and AppImage SUID sandbox
+if (process.platform === 'linux') {
+  app.commandLine.appendSwitch('no-sandbox');
+  app.commandLine.appendSwitch('disable-gpu-sandbox');
+}
+
+// Single instance lock
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+  process.exit(0);
+}
+
+let mainWindow: BrowserWindow | null = null;
+let fileDB: FileDB;
+let mockServer: MockServer;
+let docShareServer: DocShareServer;
+
+function createWindow() {
+  mainWindow = new BrowserWindow({
+    width: 1280,
+    height: 820,
+    minWidth: 980,
+    minHeight: 640,
+    frame: false,
+    titleBarStyle: 'hidden',
+    backgroundColor: '#121316',
+    icon: path.join(currentDir, app.isPackaged ? '../dist/icon.png' : '../public/icon.png'),
+    webPreferences: {
+      preload: path.join(currentDir, 'preload.js'),
+      spellcheck: false,
+      contextIsolation: true,
+      nodeIntegration: false,
+      webSecurity: false,
+    },
+  });
+
+  // Remove default menu
+  Menu.setApplicationMenu(null);
+
+  // Load URL or File
+  if (process.env.VITE_DEV_SERVER_URL) {
+    mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
+  } else {
+    mainWindow.loadFile(path.join(currentDir, '../dist/index.html'));
+  }
+
+  mainWindow.on('closed', () => {
+    mainWindow = null;
+  });
+}
+
+// Register IPC Handlers
+function setupIPC() {
+  fileDB = new FileDB();
+  mockServer = new MockServer(fileDB);
+  docShareServer = new DocShareServer(fileDB.getUserDataDir());
+
+  // Window Controls
+  ipcMain.handle('window:minimize', () => mainWindow?.minimize());
+  ipcMain.handle('window:maximize', () => {
+    if (mainWindow?.isMaximized()) {
+      mainWindow.unmaximize();
+    } else {
+      mainWindow?.maximize();
+    }
+  });
+  ipcMain.handle('window:close', () => mainWindow?.close());
+  ipcMain.handle('window:isMaximized', () => mainWindow?.isMaximized() || false);
+
+  // FileDB - Projects
+  ipcMain.handle('db:listProjects', () => fileDB.listProjects());
+  ipcMain.handle('db:createProject', (_e, name: string, intro?: string, customPath?: string) =>
+    fileDB.createProject(name, intro, customPath)
+  );
+  ipcMain.handle('db:scanApipostProjects', () => fileDB.scanApipostProjects());
+  ipcMain.handle('db:importApipostProject', (_e, projectId: string, customPath?: string) =>
+    fileDB.importApipostProject(projectId, customPath)
+  );
+
+  // FileDB - Tree & APIs
+  ipcMain.handle('db:getProjectTree', (_e, projectId: string) => fileDB.getProjectTree(projectId));
+  ipcMain.handle('db:saveProjectTree', (_e, projectId: string, items: ApiTreeNode[]) =>
+    fileDB.saveProjectTree(projectId, items)
+  );
+  ipcMain.handle('db:getApiDetail', (_e, projectId: string, targetId: string) =>
+    fileDB.getApiDetail(projectId, targetId)
+  );
+  ipcMain.handle('db:saveApiDetail', (_e, projectId: string, targetId: string, detail: ApiDetail) =>
+    fileDB.saveApiDetail(projectId, targetId, detail)
+  );
+  ipcMain.handle('db:deleteApi', (_e, projectId: string, targetId: string) =>
+    fileDB.deleteApi(projectId, targetId)
+  );
+  ipcMain.handle('db:clearProjectApis', (_e, projectId: string) =>
+    fileDB.clearProjectApis(projectId)
+  );
+  ipcMain.handle('db:batchImportApis', (_e, projectId: string, apiDetails: ApiDetail[], tree: ApiTreeNode[]) =>
+    fileDB.batchImportApis(projectId, apiDetails, tree)
+  );
+  ipcMain.handle('db:moveApi', (_e, projectId: string, targetId: string, newParentId: string) =>
+    fileDB.moveApi(projectId, targetId, newParentId)
+  );
+  ipcMain.handle('db:saveMockExample', (_e, projectId: string, targetId: string, example: ResponseExample) =>
+    fileDB.saveMockExample(projectId, targetId, example)
+  );
+
+  // FileDB - Environments
+  ipcMain.handle('db:getEnvs', (_e, projectId: string) => fileDB.getEnvs(projectId));
+  ipcMain.handle('db:saveEnv', (_e, projectId: string, env: EnvironmentInfo) =>
+    fileDB.saveEnv(projectId, env)
+  );
+  ipcMain.handle('db:deleteEnv', (_e, projectId: string, envId: string) =>
+    fileDB.deleteEnv(projectId, envId)
+  );
+
+  // FileDB - Global Params
+  ipcMain.handle('db:getGlobalParams', (_e, projectId: string) => fileDB.getGlobalParams(projectId));
+  ipcMain.handle('db:saveGlobalParams', (_e, projectId: string, params: GlobalParams) =>
+    fileDB.saveGlobalParams(projectId, params)
+  );
+
+  // Network Engine
+  ipcMain.handle(
+    'net:sendRequest',
+    (_e, api: ApiDetail, envVars: Record<string, string>, globalVars: Record<string, string>, preUrl?: string) =>
+      NetworkEngine.executeRequest(api, envVars, globalVars, preUrl)
+  );
+  ipcMain.handle('net:fetchDocUrl', async (_e, rawUrl: string) => {
+    let targetUrl = (rawUrl || '').trim();
+    if (!targetUrl) throw new Error('URL 不能为空');
+    if (!/^https?:\/\//i.test(targetUrl)) {
+      targetUrl = `http://${targetUrl}`;
+    }
+    const httpsAgent = new https.Agent({
+      rejectUnauthorized: false,
+    });
+    const res = await axios.get(targetUrl, {
+      responseType: 'text',
+      timeout: 25000,
+      httpsAgent,
+      headers: {
+        Accept: 'application/json, application/yaml, text/yaml, text/plain, */*',
+        'User-Agent': 'mypost-desktop/1.0',
+      },
+    });
+
+    let rawData = typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
+
+    // If response is HTML (e.g. user pasted Swagger UI or Knife4j html page), attempt auto-discovery
+    if (typeof rawData === 'string' && (rawData.includes('<html') || rawData.includes('<!DOCTYPE html>'))) {
+      try {
+        const parsedUrl = new URL(targetUrl);
+        const candidates = [
+          `${parsedUrl.origin}/v2/api-docs`,
+          `${parsedUrl.origin}/v3/api-docs`,
+          `${parsedUrl.origin}/api-docs`,
+          `${parsedUrl.origin}/swagger.json`,
+          `${parsedUrl.origin}/openapi.json`,
+          `${parsedUrl.origin}${parsedUrl.pathname.replace(/\/swagger-ui.*|\/doc\.html/i, '')}/v2/api-docs`,
+          `${parsedUrl.origin}${parsedUrl.pathname.replace(/\/swagger-ui.*|\/doc\.html/i, '')}/v3/api-docs`,
+        ];
+        for (const candidate of candidates) {
+          try {
+            const probeRes = await axios.get(candidate, {
+              responseType: 'text',
+              timeout: 4000,
+              httpsAgent,
+              headers: { Accept: 'application/json, */*' },
+            });
+            const probeText = typeof probeRes.data === 'string' ? probeRes.data : JSON.stringify(probeRes.data);
+            if (
+              probeText &&
+              (probeText.includes('"swagger"') ||
+                probeText.includes('"openapi"') ||
+                probeText.includes('swagger:') ||
+                probeText.includes('openapi:'))
+            ) {
+              return probeText;
+            }
+          } catch {}
+        }
+      } catch {}
+    }
+
+    return rawData;
+  });
+  ipcMain.handle('doc:parseApiDoc', async (_e, rawContent: string) => {
+    return MainDocParser.parse(rawContent);
+  });
+
+  // Mock Engine
+  ipcMain.handle('mock:getInfo', () => mockServer.getInfo());
+
+  // Dialogs
+  ipcMain.handle('dialog:openFile', async () => {
+    if (!mainWindow) return null;
+    const res = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openFile'],
+    });
+    if (res.canceled || !res.filePaths[0]) return null;
+    const filePath = res.filePaths[0];
+    const fileName = path.basename(filePath);
+    return { filePath, fileName };
+  });
+  ipcMain.handle('dialog:readDocFile', async () => {
+    if (!mainWindow) return null;
+    const res = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openFile'],
+      filters: [
+        { name: 'API Document (*.json, *.yaml, *.yml)', extensions: ['json', 'yaml', 'yml', 'txt'] },
+        { name: 'All Files', extensions: ['*'] },
+      ],
+    });
+    if (res.canceled || !res.filePaths[0]) return null;
+    const filePath = res.filePaths[0];
+    const fileName = path.basename(filePath);
+    const content = fs.readFileSync(filePath, 'utf-8').replace(/^\uFEFF/, '');
+    return { filePath, fileName, content };
+  });
+  ipcMain.handle('dialog:selectDirectory', async () => {
+    if (!mainWindow) return null;
+    const res = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openDirectory', 'createDirectory'],
+    });
+    return res.canceled ? null : res.filePaths[0];
+  });
+  ipcMain.handle('dialog:saveFile', async (_e, defaultFilename: string, content: string) => {
+    if (!mainWindow) return false;
+    const res = await dialog.showSaveDialog(mainWindow, {
+      defaultPath: defaultFilename,
+    });
+    if (res.canceled || !res.filePath) return false;
+    fs.writeFileSync(res.filePath, content, 'utf-8');
+    return true;
+  });
+  ipcMain.handle('shell:openPath', (_e, targetPath: string) => shell.openPath(targetPath));
+  ipcMain.handle('shell:openExternal', (_e, url: string) => shell.openExternal(url));
+
+  // LAN Document Share Service
+  ipcMain.handle('share:createDocShare', (_e, record: DocShareRecord) => {
+    return docShareServer.registerShare(record);
+  });
+  ipcMain.handle('share:listDocShares', () => docShareServer.listShares());
+  ipcMain.handle('share:deleteDocShare', (_e, shareId: string) => docShareServer.deleteShare(shareId));
+  ipcMain.handle('share:clearAllDocShares', () => docShareServer.clearAllShares());
+  ipcMain.handle('share:getServerInfo', () => docShareServer.getServerInfo());
+
+  // SSE Streaming Engine (Node.js http/https bypasses CORS, preflight & browser limits)
+  const activeSseStreams = new Map<string, http.ClientRequest>();
+
+  ipcMain.handle(
+    'sse:start',
+    (
+      event,
+      streamId: string,
+      options: {
+        url: string;
+        method?: string;
+        headers?: Record<string, string>;
+        body?: string;
+      }
+    ) => {
+      try {
+        const existing = activeSseStreams.get(streamId);
+        if (existing) {
+          existing.destroy();
+          activeSseStreams.delete(streamId);
+        }
+
+        const connect = (targetUrl: string, redirectCount = 0): void => {
+          if (redirectCount > 5) {
+            event.sender.send(`sse:error:${streamId}`, '重定向次数过多 (Too many redirects)');
+            activeSseStreams.delete(streamId);
+            return;
+          }
+
+          const parsedUrl = new URL(targetUrl);
+          const isHttps = parsedUrl.protocol === 'https:';
+          const client = isHttps ? https : http;
+
+          const hasUserAgent =
+            options.headers &&
+            Object.keys(options.headers).some((k) => k.toLowerCase() === 'user-agent');
+
+          const reqHeaders: Record<string, string> = {
+            Accept: 'text/event-stream, text/*, */*',
+            'Cache-Control': 'no-cache',
+            Connection: 'keep-alive',
+            ...(!hasUserAgent
+              ? {
+                  'User-Agent':
+                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 MyPost/1.0',
+                }
+              : {}),
+            ...(options.headers || {}),
+          };
+
+          const req = client.request(
+            targetUrl,
+            {
+              method: options.method || 'GET',
+              headers: reqHeaders,
+              agent: isHttps
+                ? new https.Agent({ keepAlive: true, rejectUnauthorized: false })
+                : new http.Agent({ keepAlive: true }),
+            },
+            (res) => {
+              const statusCode = res.statusCode || 0;
+
+              // Handle HTTP Redirects (301, 302, 307, 308)
+              if (
+                statusCode >= 300 &&
+                statusCode < 400 &&
+                res.headers.location
+              ) {
+                const nextUrl = new URL(res.headers.location, targetUrl).toString();
+                res.destroy();
+                connect(nextUrl, redirectCount + 1);
+                return;
+              }
+
+              // Handle HTTP Errors
+              if (statusCode >= 400) {
+                let errBody = '';
+                res.on('data', (c: Buffer) => {
+                  if (errBody.length < 500) errBody += c.toString('utf-8');
+                });
+                res.on('end', () => {
+                  activeSseStreams.delete(streamId);
+                  const suffix = errBody.trim() ? `: ${errBody.trim().slice(0, 150)}` : '';
+                  event.sender.send(
+                    `sse:error:${streamId}`,
+                    `HTTP ${statusCode} ${res.statusMessage || '请求失败'}${suffix}`
+                  );
+                });
+                return;
+              }
+
+              event.sender.send(`sse:connected:${streamId}`, {
+                statusCode,
+                headers: res.headers,
+              });
+
+              res.on('data', (chunk: Buffer) => {
+                event.sender.send(`sse:chunk:${streamId}`, chunk.toString('utf-8'));
+              });
+
+              res.on('end', () => {
+                activeSseStreams.delete(streamId);
+                event.sender.send(`sse:end:${streamId}`);
+              });
+
+              res.on('error', (err: any) => {
+                activeSseStreams.delete(streamId);
+                event.sender.send(`sse:error:${streamId}`, err.message || 'Stream error');
+              });
+            }
+          );
+
+          req.on('error', (err: any) => {
+            activeSseStreams.delete(streamId);
+            event.sender.send(`sse:error:${streamId}`, err.message || '网络连接失败');
+          });
+
+          if (
+            options.body &&
+            (options.method === 'POST' || options.method === 'PUT' || options.method === 'PATCH')
+          ) {
+            req.write(options.body);
+          }
+
+          req.end();
+          activeSseStreams.set(streamId, req);
+        };
+
+        connect(options.url, 0);
+        return true;
+      } catch (err: any) {
+        event.sender.send(`sse:error:${streamId}`, err.message || '初始化请求失败');
+        return false;
+      }
+    }
+  );
+
+  ipcMain.handle('sse:stop', (_event, streamId: string) => {
+    const req = activeSseStreams.get(streamId);
+    if (req) {
+      req.destroy();
+      activeSseStreams.delete(streamId);
+    }
+    return true;
+  });
+}
+
+app.whenReady().then(async () => {
+  setupIPC();
+  try {
+    await mockServer.start();
+  } catch (e) {
+    console.warn('[main] Failed to auto-start MockServer:', e);
+  }
+  try {
+    await docShareServer.start();
+  } catch (e) {
+    console.warn('[main] Failed to auto-start DocShareServer:', e);
+  }
+  createWindow();
+
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  });
+});
+
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') {
+    app.quit();
+  }
+});
+
+app.on('second-instance', () => {
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  }
+});

@@ -1,0 +1,202 @@
+{
+  "name": "mypost",
+  "version": "2026.10.18",
+  "description": "mypost - 专为个人打造的纯本地 API 调试与管理工具",
+  "license": "MIT",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "main": "dist-electron/index.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "package:win": "npm run build && electron-builder --win --x64 --arm64",
+    "package:win:x64": "npm run build && electron-builder --win --x64",
+    "package:win:arm64": "npm run build && electron-builder --win --arm64",
+    "package:mac": "npm run build && electron-builder --mac --arm64",
+    "package:mac:arm64": "npm run build && electron-builder --mac --arm64",
+    "package:mac:universal": "npm run build && electron-builder --mac --universal",
+    "package:linux": "npm run build && electron-builder --linux",
+    "package:linux:deb": "npm run build && electron-builder --linux deb --x64 --arm64",
+    "package:linux:appimage": "npm run build && electron-builder --linux AppImage --x64",
+    "package:all": "npm run build && electron-builder -mwl",
+    "release": "electron-builder --publish always"
+  },
+  "build": {
+    "appId": "com.tiane.mypost",
+    "productName": "mypost",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "public/icon.png",
+      "artifactName": "${productName}-Setup-${version}-${os}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "mypost",
+      "uninstallDisplayName": "${productName}",
+      "artifactName": "${productName}-Setup-${version}-${os}-${arch}.${ext}"
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-${os}-${arch}-portable.${ext}"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "category": "public.app-category.developer-tools",
+      "icon": "public/icon.png",
+      "artifactName": "${productName}-${version}-mac-${arch}.${ext}",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false
+    },
+    "dmg": {
+      "artifactName": "${productName}-${version}-mac-${arch}.${ext}",
+      "contents": [
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "tar.gz",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "category": "Development",
+      "icon": "public/icon.png",
+      "executableArgs": [
+        "--no-sandbox"
+      ],
+      "maintainer": "Tiane-ira <tiane@example.com>",
+      "description": "mypost - 高效现代化的 API 研发与调试协同工具",
+      "synopsis": "API 研发、调试、Mock 与协同工具",
+      "desktop": {
+        "entry": {
+          "StartupWMClass": "mypost",
+          "Comment": "mypost - 高效现代化的 API 研发与调试协同工具",
+          "Categories": "Development;Debugger;"
+        }
+      }
+    },
+    "appImage": {
+      "artifactName": "${productName}-${version}-${os}-${arch}.${ext}"
+    },
+    "deb": {
+      "packageCategory": "devel",
+      "priority": "optional",
+      "depends": [
+        "libc6 (>= 2.31)",
+        "libnotify4",
+        "libnss3 (>= 2:3.26)",
+        "libasound2 (>= 1.0.16)",
+        "libsecret-1-0",
+        "xdg-utils"
+      ],
+      "artifactName": "${productName}_${version}_${arch}.${ext}"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "Tiane-ira",
+      "repo": "my-post"
+    }
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "@apidevtools/swagger-parser": "^13.1.0",
+    "axios": "^1.20.0",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.57.0",
+    "mockjs": "^1.1.0",
+    "openapi-sampler": "^1.7.6",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "tailwind-merge": "^3.7.0",
+    "yaml": "^2.9.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/mockjs": "^1.0.10",
+    "@types/node": "^26.6.5",
+    "@types/openapi-sampler": "^1.0.3",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "autoprefixer": "^10.6.1",
+    "electron": "^44.7.2",
+    "electron-builder": "^26.15.3",
+    "postcss": "^8.5.30",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.4",
+    "vite-plugin-electron": "^1.1.2",
+    "vite-plugin-electron-renderer": "^1.0.0",
+    "vitest": "^5.0.4"
+  }
+}
