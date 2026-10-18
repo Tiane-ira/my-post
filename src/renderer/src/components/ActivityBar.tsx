@@ -5,14 +5,12 @@ interface ActivityBarProps {
   activeTab: 'apis' | 'shares';
   onSelectTab: (tab: 'apis' | 'shares') => void;
   onOpenSettings: () => void;
-  sharesCount?: number;
 }
 
 export const ActivityBar: React.FC<ActivityBarProps> = ({
   activeTab,
   onSelectTab,
   onOpenSettings,
-  sharesCount = 0,
 }) => {
   return (
     <div className="w-12 bg-rail border-r border-line flex flex-col justify-between items-center py-3 shrink-0 select-none z-10">
@@ -51,9 +49,6 @@ export const ActivityBar: React.FC<ActivityBarProps> = ({
           <span className="text-[9px] font-medium scale-90">分享</span>
           {activeTab === 'shares' && (
             <span className="absolute left-0 top-2 bottom-2 w-0.5 bg-accent rounded-r"></span>
-          )}
-          {sharesCount > 0 && (
-            <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-accent animate-pulse shadow-sm shadow-orange-500/50"></span>
           )}
         </button>
       </div>

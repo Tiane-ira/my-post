@@ -74,24 +74,6 @@ export const App: React.FC = () => {
 
   // Top-level Navigation View ('apis' | 'shares')
   const [activeNavTab, setActiveNavTab] = useState<'apis' | 'shares'>('apis');
-  const [sharesCount, setSharesCount] = useState<number>(0);
-
-  // Monitor active shared links count for ActivityBar badge
-  useEffect(() => {
-    const updateSharesCount = async () => {
-      try {
-        if (window.mypostAPI?.listDocShares) {
-          const list = await window.mypostAPI.listDocShares();
-          setSharesCount(list?.filter((s) => !s.isExpired).length || 0);
-        }
-      } catch (_) {}
-    };
-    updateSharesCount();
-    window.addEventListener('mypost:share-created', updateSharesCount);
-    return () => {
-      window.removeEventListener('mypost:share-created', updateSharesCount);
-    };
-  }, []);
 
   // Initial load
   useEffect(() => {
@@ -863,7 +845,6 @@ export const App: React.FC = () => {
           activeTab={activeNavTab}
           onSelectTab={setActiveNavTab}
           onOpenSettings={() => setIsSettingsModalOpen(true)}
-          sharesCount={sharesCount}
         />
 
         {/* View 1: API Management Page (Sidebar + Workbench) */}
