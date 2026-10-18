@@ -628,7 +628,7 @@ export class FileDB {
     return true;
   }
 
-  public saveMockExample(projectId: string, targetId: string, example: ResponseExample): boolean {
+  public saveResponseExample(projectId: string, targetId: string, example: ResponseExample): boolean {
     const detail = this.getApiDetail(projectId, targetId);
     if (!detail) return false;
 

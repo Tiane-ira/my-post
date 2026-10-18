@@ -525,7 +525,7 @@ export const ApiWorkbench: React.FC<ApiWorkbenchProps> = ({
           style={{ height: `${reqHeightPercent}%` }}
           className="flex flex-col border-b border-line bg-surface overflow-hidden min-h-[90px]"
         >
-        {/* Request Tabs: Header, Query, Path, Body, 认证, Cookie, 预执行操作, 后执行操作, Mock */}
+        {/* Request Tabs: Header, Query, Path, Body, 认证, Cookie, 预执行操作, 后执行操作 */}
         <div className="h-9 px-3 bg-subtle border-b border-line flex items-center gap-1 text-xs select-none overflow-x-auto">
           <button
             onClick={() => setActiveReqTab('header')}

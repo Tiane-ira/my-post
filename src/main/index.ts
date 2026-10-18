@@ -7,7 +7,6 @@ import http from 'http';
 import https from 'https';
 import { FileDB } from './fileDB';
 import { NetworkEngine } from './network';
-import { MockServer } from './mockServer';
 import { DocShareServer, DocShareRecord } from './docShareServer';
 import { ApiDetail, ApiTreeNode, EnvironmentInfo, GlobalParams, ResponseExample } from '../common/types';
 import { MainDocParser } from './docParser';
@@ -32,7 +31,6 @@ if (!gotLock) {
 
 let mainWindow: BrowserWindow | null = null;
 let fileDB: FileDB;
-let mockServer: MockServer;
 let docShareServer: DocShareServer;
 let tray: Tray | null = null;
 let isQuitting = false;
@@ -99,7 +97,7 @@ function notifyCloseToTray() {
     try {
       tray.displayBalloon({
         title: 'mypost 已最小化到系统托盘',
-        content: '应用仍在后台运行（本地 Mock 与文档分享服务保持开启），点击托盘图标可重新打开。',
+        content: '应用仍在后台运行（文档分享服务保持开启），点击托盘图标可重新打开。',
         iconType: 'info',
       });
     } catch {}
@@ -206,7 +204,6 @@ function createWindow() {
 // Register IPC Handlers
 function setupIPC() {
   fileDB = new FileDB();
-  mockServer = new MockServer(fileDB);
   docShareServer = new DocShareServer(fileDB.getUserDataDir());
 
   // Window Controls
@@ -265,8 +262,8 @@ function setupIPC() {
   ipcMain.handle('db:moveApi', (_e, projectId: string, targetId: string, newParentId: string) =>
     fileDB.moveApi(projectId, targetId, newParentId)
   );
-  ipcMain.handle('db:saveMockExample', (_e, projectId: string, targetId: string, example: ResponseExample) =>
-    fileDB.saveMockExample(projectId, targetId, example)
+  ipcMain.handle('db:saveResponseExample', (_e, projectId: string, targetId: string, example: ResponseExample) =>
+    fileDB.saveResponseExample(projectId, targetId, example)
   );
 
   // FileDB - Environments
@@ -352,9 +349,6 @@ function setupIPC() {
   ipcMain.handle('doc:parseApiDoc', async (_e, rawContent: string) => {
     return MainDocParser.parse(rawContent);
   });
-
-  // Mock Engine
-  ipcMain.handle('mock:getInfo', () => mockServer.getInfo());
 
   // Dialogs
   ipcMain.handle('dialog:openFile', async () => {
@@ -560,11 +554,6 @@ function setupIPC() {
 app.whenReady().then(async () => {
   setupIPC();
   try {
-    await mockServer.start();
-  } catch (e) {
-    console.warn('[main] Failed to auto-start MockServer:', e);
-  }
-  try {
     await docShareServer.start();
   } catch (e) {
     console.warn('[main] Failed to auto-start DocShareServer:', e);
@@ -590,9 +579,6 @@ app.on('will-quit', () => {
     tray.destroy();
     tray = null;
   }
-  try {
-    mockServer?.stop();
-  } catch {}
   try {
     docShareServer?.stop();
   } catch {}

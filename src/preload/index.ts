@@ -8,7 +8,6 @@ import {
   ProjectInfo,
   ApipostScannedProject,
   ResponseExample,
-  MockServerInfo,
   DocShareRecord,
   DocShareItem,
   ShareServerInfo,
@@ -52,8 +51,8 @@ export const apiBridge = {
     ipcRenderer.invoke('db:clearProjectApis', projectId),
   moveApi: (projectId: string, targetId: string, newParentId: string): Promise<boolean> =>
     ipcRenderer.invoke('db:moveApi', projectId, targetId, newParentId),
-  saveMockExample: (projectId: string, targetId: string, example: ResponseExample): Promise<boolean> =>
-    ipcRenderer.invoke('db:saveMockExample', projectId, targetId, example),
+  saveResponseExample: (projectId: string, targetId: string, example: ResponseExample): Promise<boolean> =>
+    ipcRenderer.invoke('db:saveResponseExample', projectId, targetId, example),
 
   // Environments
   getEnvs: (projectId: string): Promise<EnvironmentInfo[]> =>
@@ -77,9 +76,6 @@ export const apiBridge = {
     preUrl?: string
   ): Promise<HttpResponseResult> =>
     ipcRenderer.invoke('net:sendRequest', api, envVars, globalVars, preUrl),
-
-  // Mock Engine
-  getMockServerInfo: (): Promise<MockServerInfo> => ipcRenderer.invoke('mock:getInfo'),
 
   // Network & Doc Fetching
   fetchDocUrl: (url: string): Promise<string> => ipcRenderer.invoke('net:fetchDocUrl', url),

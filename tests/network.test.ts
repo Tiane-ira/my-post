@@ -41,7 +41,7 @@ describe('NetworkEngine Request Processor', () => {
     });
   });
 
-  describe('Request Execution with Live / Mock Verification', () => {
+  describe('Request Execution with PreUrl and Variable Verification', () => {
     it('should handle preUrl prefixing when relative path is given', async () => {
       const api: ApiDetail = {
         target_id: 'test-1',

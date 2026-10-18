@@ -236,7 +236,7 @@ export const VisualFieldEditor: React.FC<VisualFieldEditorProps> = ({
           id: 1001,
           name: '示例对象',
           status: true,
-          tags: ['api', 'mock'],
+          tags: ['api', 'json'],
         },
         null,
         2

@@ -113,13 +113,6 @@ export interface ResponseExample {
   raw_parameter?: KeyValueItem[];
 }
 
-export interface MockServerInfo {
-  port: number;
-  running: boolean;
-  host: string;
-  baseUrl: string;
-}
-
 export interface ApipostScannedProject {
   project_id: string;
   name: string;

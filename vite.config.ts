@@ -14,19 +14,6 @@ export default defineConfig({
         vite: {
           build: {
             outDir: 'dist-electron',
-            rolldownOptions: {
-              checks: {
-                eval: false,
-              },
-            },
-            rollupOptions: {
-              onwarn(warning, warn) {
-                if (warning.code === 'EVAL') {
-                  return;
-                }
-                warn(warning);
-              },
-            },
           },
         },
       },

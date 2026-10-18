@@ -10,7 +10,6 @@ import {
   FileText,
   Eye,
   Terminal,
-  BookmarkPlus,
   Zap,
   X,
   Globe,
@@ -24,7 +23,6 @@ import { Tooltip } from './Tooltip';
 interface ResponseViewerProps {
   response: HttpResponseResult | null;
   loading: boolean;
-  onSaveAsMock?: (name: string, statusCode: number, raw: string) => void;
   onExtractVariable?: (key: string, value: string) => void;
   examples?: ResponseExample[];
   activeApi?: ApiDetail;
@@ -33,7 +31,6 @@ interface ResponseViewerProps {
 export const ResponseViewer: React.FC<ResponseViewerProps> = ({
   response,
   loading,
-  onSaveAsMock,
   onExtractVariable,
   examples = [],
   activeApi,
@@ -54,14 +51,11 @@ export const ResponseViewer: React.FC<ResponseViewerProps> = ({
   // Search inside response
   const [searchKeyword, setSearchKeyword] = useState('');
 
-  // Modals for Mock & Variable extraction
-  const [isMockModalOpen, setIsMockModalOpen] = useState(false);
-  const [mockExampleName, setMockExampleName] = useState('');
+  // Variable extraction
   const [isExtractModalOpen, setIsExtractModalOpen] = useState(false);
   const [extractPath, setExtractPath] = useState('');
   const [extractVarName, setExtractVarName] = useState('');
   const [extractSuccessTip, setExtractSuccessTip] = useState(false);
-  const [saveMockSuccessTip, setSaveMockSuccessTip] = useState(false);
 
   if (loading) {
     return (
@@ -154,18 +148,6 @@ export const ResponseViewer: React.FC<ResponseViewerProps> = ({
     setTimeout(() => {
       setExtractSuccessTip(false);
       setIsExtractModalOpen(false);
-    }, 1200);
-  };
-
-  const handleConfirmSaveMock = () => {
-    const name = mockExampleName.trim() || `${response.statusCode} 响应示例`;
-    if (onSaveAsMock) {
-      onSaveAsMock(name, response.statusCode, response.rawText);
-    }
-    setSaveMockSuccessTip(true);
-    setTimeout(() => {
-      setSaveMockSuccessTip(false);
-      setIsMockModalOpen(false);
     }, 1200);
   };
 
@@ -380,7 +362,7 @@ export const ResponseViewer: React.FC<ResponseViewerProps> = ({
                 </button>
               </div>
 
-              {/* Advanced Response Management Actions: Save as Mock & Extract to Variable */}
+              {/* Advanced Response Actions: Extract to Variable */}
               <div className="flex items-center gap-2">
                 {/* Search within response */}
                 <div className="relative">
@@ -424,20 +406,6 @@ export const ResponseViewer: React.FC<ResponseViewerProps> = ({
                       <span>⚡ 提取变量</span>
                     </button>
                   )}
-
-                {onSaveAsMock && (
-                  <button
-                    onClick={() => {
-                      setMockExampleName(`${response.statusCode} 响应示例`);
-                      setIsMockModalOpen(true);
-                    }}
-                    className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/30 text-blue-300 text-xs font-medium transition shadow-sm"
-                    title="将当前真实响应保存为接口的 Mock 期望响应"
-                  >
-                    <BookmarkPlus className="w-3.5 h-3.5 text-blue-400" />
-                    <span>💾 保存为Mock期望</span>
-                  </button>
-                )}
               </div>
             </div>
 
@@ -727,28 +695,16 @@ export const ResponseViewer: React.FC<ResponseViewerProps> = ({
           </div>
         )}
 
-        {/* 5. 响应示例 (Response Mock Examples) */}
+        {/* 5. 响应示例 (Response Examples) */}
         {activeTab === 'examples' && (
           <div className="space-y-3">
             <div className="flex items-center justify-between text-xs text-gray-400">
-              <span>当前接口配置的 Mock 响应期望列表：</span>
-              {onSaveAsMock && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMockExampleName(`${response.statusCode} 响应示例`);
-                    setIsMockModalOpen(true);
-                  }}
-                  className="px-2.5 py-1 rounded bg-blue-500/10 hover:bg-blue-500/20 text-blue-300 border border-blue-500/30 font-medium transition"
-                >
-                  + 将当前响应保存为新期望
-                </button>
-              )}
+              <span>当前接口配置的响应示例列表：</span>
             </div>
 
             {examples.length === 0 ? (
               <div className="border border-line rounded-lg bg-surface py-12 text-center text-gray-500 text-xs">
-                暂无配置响应示例，点击右上角保存当前响应为 Mock 期望
+                暂无配置响应示例
               </div>
             ) : (
               <div className="space-y-2">
@@ -799,73 +755,6 @@ export const ResponseViewer: React.FC<ResponseViewerProps> = ({
           </div>
         )}
       </div>
-
-      {/* Save As Mock Modal */}
-      {isMockModalOpen && (
-        <div className="absolute inset-0 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="w-96 bg-surface border border-line rounded-xl shadow-2xl p-4 text-xs space-y-3">
-            <div className="flex items-center justify-between pb-2 border-b border-line">
-              <div className="font-bold text-foreground flex items-center gap-1.5">
-                <BookmarkPlus className="w-4 h-4 text-blue-400" />
-                <span>保存为 Mock 期望响应</span>
-              </div>
-              <button
-                onClick={() => setIsMockModalOpen(false)}
-                className="text-gray-400 hover:text-foreground"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div>
-              <label className="block text-gray-400 mb-1">期望响应名称</label>
-              <input
-                type="text"
-                value={mockExampleName}
-                onChange={(e) => setMockExampleName(e.target.value)}
-                placeholder="例如：200 成功响应"
-                className="w-full bg-surface border border-line rounded px-2.5 py-1.5 text-gray-200 focus:outline-none focus:border-blue-400"
-              />
-            </div>
-
-            <div className="text-gray-400 bg-surface p-2.5 rounded border border-line space-y-1">
-              <div className="flex justify-between">
-                <span>响应状态码：</span>
-                <span className="font-mono text-emerald-400">{response.statusCode}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>响应体大小：</span>
-                <span className="font-mono text-gray-200">
-                  {formatSize(response.sizeBytes)}
-                </span>
-              </div>
-            </div>
-
-            {saveMockSuccessTip && (
-              <div className="text-emerald-400 font-medium text-center py-1">
-                ✓ 保存成功，已作为新 Mock 期望写入当前接口！
-              </div>
-            )}
-
-            <div className="flex justify-end gap-2 pt-2 border-t border-line">
-              <button
-                type="button"
-                onClick={() => setIsMockModalOpen(false)}
-                className="px-3 py-1.5 rounded bg-subtle hover:bg-hover text-gray-300 font-medium transition"
-              >
-                取消
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirmSaveMock}
-                className="px-4 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white font-medium transition shadow-md"
-              >
-                确认保存
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Extract Variable Modal */}
       {isExtractModalOpen && (

@@ -484,7 +484,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         <span className="px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/15 text-emerald-400 font-normal">推荐</span>
                       </div>
                       <div className="text-gray-400 text-[11px] leading-relaxed">
-                        点击窗口右上角关闭按钮（X）时，将应用最小化隐藏至系统任务栏托盘。本地 Mock 服务与文档分享服务将在后台持续运行不中断。
+                        点击窗口右上角关闭按钮（X）时，将应用最小化隐藏至系统任务栏托盘。文档分享服务将在后台持续运行不中断。
                       </div>
                     </div>
                     <label className="relative inline-flex items-center cursor-pointer shrink-0">
@@ -524,7 +524,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <div className="flex items-center justify-between p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/20">
                     <div>
                       <div className="font-semibold text-rose-300">彻底退出 mypost</div>
-                      <div className="text-gray-400 text-[11px]">关闭主窗口并终止所有正在后台运行的 Mock 引擎和文档分享服务</div>
+                      <div className="text-gray-400 text-[11px]">关闭主窗口并终止所有正在后台运行的文档分享服务</div>
                     </div>
                     <button
                       type="button"
