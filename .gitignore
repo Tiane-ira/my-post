@@ -1,7 +1,67 @@
-node_modules
-dist
-dist-electron
-release
-scratch
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build and Packaging outputs
+dist/
+dist-electron/
+release/
+build/
+out/
+
+# Environment Variables & Secrets (Security Protection)
+.env
+.env.*
+!.env.example
+*.env
+*.local
+
+# SSL Certificates and Private Keys (Security Protection)
+*.pem
+*.key
+*.cert
+*.crt
+*.pfx
+*.p12
+
+# Logs & Debug
 *.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Test Coverage
+coverage/
+.nyc_output/
+*.lcov
+
+# IDE & Editors
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*~
+
+# Operating System Files
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+[Dd]esktop.ini
+
+# Scratch & Temporary Files
+scratch/
+tmp/
+temp/
+*.tmp
+*.bak
