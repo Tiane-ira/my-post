@@ -14,12 +14,14 @@ export default defineConfig({
         vite: {
           build: {
             outDir: 'dist-electron',
-            rollupOptions: {
-              output: {
-                entryFileNames: 'main.js',
+            rolldownOptions: {
+              checks: {
+                eval: false,
               },
+            },
+            rollupOptions: {
               onwarn(warning, warn) {
-                if (warning.code === 'EVAL' && warning.id?.includes('mockjs')) {
+                if (warning.code === 'EVAL') {
                   return;
                 }
                 warn(warning);
