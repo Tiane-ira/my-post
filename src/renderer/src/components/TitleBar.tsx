@@ -1,7 +1,5 @@
 import React from 'react';
 import {
-  Minus,
-  Square,
   X,
   Layers,
   ChevronDown,
@@ -49,10 +47,6 @@ export const TitleBar: React.FC<TitleBarProps> = ({
   const { themeMode, setThemeMode } = useTheme();
   const [themeDropdown, setThemeDropdown] = React.useState(false);
 
-  const handleMinimize = () => window.mypostAPI.minimize();
-  const handleMaximize = () => window.mypostAPI.maximize();
-  const handleClose = () => window.mypostAPI.close();
-
   const handleCopyVar = (key: string) => {
     navigator.clipboard.writeText(`{{${key}}}`);
     setCopiedVarKey(key);
@@ -60,9 +54,9 @@ export const TitleBar: React.FC<TitleBarProps> = ({
   };
 
   return (
-    <div className="h-10 bg-surface border-b border-line flex items-center justify-between px-3 select-none drag-region text-xs z-50">
+    <div className="h-10 bg-surface border-b border-line flex items-center justify-between px-3 select-none text-xs z-50">
       {/* Brand & Project Selector */}
-      <div className="flex items-center gap-3 no-drag">
+      <div className="flex items-center gap-3">
         <div className="flex items-center gap-2 font-bold text-sm tracking-wide text-foreground">
           <img
             src="./icon.svg"
@@ -133,7 +127,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
       </div>
 
       {/* Center - Env Selector */}
-      <div className="flex items-center gap-3 no-drag">
+      <div className="flex items-center gap-3">
         {/* Environment Selector & Quick Look */}
         <div className="flex items-center gap-1 relative">
           <button
@@ -321,8 +315,8 @@ export const TitleBar: React.FC<TitleBarProps> = ({
         </div>
       </div>
 
-      {/* Right - Theme Switcher & Window Controls */}
-      <div className="flex items-center gap-1.5 no-drag">
+      {/* Right - Theme Switcher */}
+      <div className="flex items-center gap-1.5">
         {/* Day / Night Theme Selector */}
         <div className="relative">
           <button
@@ -404,31 +398,6 @@ export const TitleBar: React.FC<TitleBarProps> = ({
             </div>
           )}
         </div>
-
-        <div className="h-4 w-[1px] bg-subtle mx-0.5" />
-
-        {/* Window Controls */}
-        <button
-          onClick={handleMinimize}
-          className="w-8 h-8 flex items-center justify-center hover:bg-hover text-gray-400 hover:text-foreground transition rounded"
-          title="最小化"
-        >
-          <Minus className="w-3.5 h-3.5" />
-        </button>
-        <button
-          onClick={handleMaximize}
-          className="w-8 h-8 flex items-center justify-center hover:bg-hover text-gray-400 hover:text-foreground transition rounded"
-          title="最大化"
-        >
-          <Square className="w-3 h-3" />
-        </button>
-        <button
-          onClick={handleClose}
-          className="w-8 h-8 flex items-center justify-center hover:bg-red-600/90 text-gray-400 hover:text-foreground transition rounded"
-          title="关闭 (退出到托盘)"
-        >
-          <X className="w-3.5 h-3.5" />
-        </button>
       </div>
     </div>
   );

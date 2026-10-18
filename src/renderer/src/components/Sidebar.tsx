@@ -902,41 +902,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
             {!isRootCollapsed && (
               <div className="space-y-0.5 mt-0.5">
                 {topLevelItems.length === 0 ? (
-                  <div className="py-4 pl-7 pr-2 text-gray-500 text-[11px] flex flex-col items-start gap-1">
-                    <span>根目录下暂无接口</span>
-                    <div className="flex items-center gap-2 text-[10px]">
-                      <button
-                        type="button"
-                        onClick={() => onCreateApi('0', 'api')}
-                        className="text-accent hover:underline flex items-center gap-1"
-                      >
-                        <FilePlus className="w-3 h-3" /> 新建接口
-                      </button>
-                      <span className="text-gray-600">|</span>
-                      <button
-                        type="button"
-                        onClick={() => onCreateApi('0', 'sse')}
-                        className="text-sky-400 hover:underline flex items-center gap-1"
-                      >
-                        <Radio className="w-3 h-3" /> SSE
-                      </button>
-                      <span className="text-gray-600">|</span>
-                      <button
-                        type="button"
-                        onClick={() => onCreateApi('0', 'websocket')}
-                        className="text-teal-400 hover:underline flex items-center gap-1"
-                      >
-                        <Zap className="w-3 h-3" /> WS
-                      </button>
-                      <span className="text-gray-600">|</span>
-                      <button
-                        type="button"
-                        onClick={onOpenImport}
-                        className="text-blue-400 hover:underline flex items-center gap-1"
-                      >
-                        <Upload className="w-3 h-3" /> 导入文档
-                      </button>
-                    </div>
+                  <div className="py-6 px-4 text-center text-gray-500 text-xs select-none">
+                    暂无接口数据
                   </div>
                 ) : (
                   topLevelItems.map((item, idx) => renderNode(item, 1, idx))

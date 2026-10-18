@@ -165,8 +165,7 @@ function createWindow() {
     height: 820,
     minWidth: 980,
     minHeight: 640,
-    frame: false,
-    titleBarStyle: 'hidden',
+    title: 'mypost',
     backgroundColor: '#121316',
     icon: getAppIcon(),
     webPreferences: {
