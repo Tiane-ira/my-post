@@ -131,7 +131,7 @@
       "executableArgs": [
         "--no-sandbox"
       ],
-      "maintainer": "Tiane-ira <tiane@example.com>",
+      "maintainer": "Tiane-ira",
       "description": "mypost - 高效现代化的 API 研发与调试协同工具",
       "synopsis": "API 研发、调试、Mock 与协同工具",
       "desktop": {
@@ -166,7 +166,6 @@
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
   "type": "module",
   "dependencies": {
     "@apidevtools/swagger-parser": "^13.1.0",

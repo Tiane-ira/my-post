@@ -96,6 +96,10 @@ export const App: React.FC = () => {
   // Initial load
   useEffect(() => {
     loadProjects();
+    const savedCloseToTray = localStorage.getItem('mypost:system:closeToTray');
+    if (savedCloseToTray !== null && window.mypostAPI?.setCloseToTray) {
+      window.mypostAPI.setCloseToTray(savedCloseToTray === 'true');
+    }
   }, []);
 
   const handleSwitchProject = (project: ProjectInfo) => {

@@ -22,6 +22,12 @@ export const apiBridge = {
   close: () => ipcRenderer.invoke('window:close'),
   isMaximized: () => ipcRenderer.invoke('window:isMaximized'),
 
+  // App & System Tray controls
+  quitApp: (): Promise<void> => ipcRenderer.invoke('app:quit'),
+  getCloseToTray: (): Promise<boolean> => ipcRenderer.invoke('app:getCloseToTray'),
+  setCloseToTray: (enabled: boolean): Promise<boolean> =>
+    ipcRenderer.invoke('app:setCloseToTray', enabled),
+
   // Project and FileDB
   listProjects: (): Promise<ProjectInfo[]> => ipcRenderer.invoke('db:listProjects'),
   createProject: (name: string, intro?: string, customPath?: string): Promise<ProjectInfo> =>

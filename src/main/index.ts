@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, shell, Menu } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, shell, Menu, Tray, nativeImage, NativeImage } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -34,6 +34,132 @@ let mainWindow: BrowserWindow | null = null;
 let fileDB: FileDB;
 let mockServer: MockServer;
 let docShareServer: DocShareServer;
+let tray: Tray | null = null;
+let isQuitting = false;
+let closeToTray = true;
+let hasShownTrayBalloon = false;
+
+function getAppIconPath(): string {
+  const candidatePaths = [
+    path.join(currentDir, app.isPackaged ? '../dist/icon.png' : '../public/icon.png'),
+    path.join(app.getAppPath(), 'dist/icon.png'),
+    path.join(app.getAppPath(), 'public/icon.png'),
+    path.join(process.resourcesPath, 'icon.png'),
+    path.join(process.resourcesPath, 'public/icon.png'),
+    path.join(currentDir, 'icon.png'),
+  ];
+  for (const p of candidatePaths) {
+    if (fs.existsSync(p)) {
+      return p;
+    }
+  }
+  return path.join(currentDir, '../public/icon.png');
+}
+
+function getAppIcon(): NativeImage {
+  const iconPath = getAppIconPath();
+  if (fs.existsSync(iconPath)) {
+    const img = nativeImage.createFromPath(iconPath);
+    if (!img.isEmpty()) {
+      return img;
+    }
+  }
+  return nativeImage.createEmpty();
+}
+
+function getTrayIcon(): NativeImage {
+  try {
+    const icon = getAppIcon();
+    if (!icon.isEmpty()) {
+      return icon.resize({ width: 32, height: 32, quality: 'best' });
+    }
+  } catch (e) {
+    console.warn('[tray] Failed to resize tray icon:', e);
+  }
+  return getAppIcon();
+}
+
+function showMainWindow() {
+  if (!mainWindow) {
+    createWindow();
+    return;
+  }
+  if (mainWindow.isMinimized()) {
+    mainWindow.restore();
+  }
+  mainWindow.show();
+  mainWindow.setAlwaysOnTop(true);
+  mainWindow.focus();
+  mainWindow.setAlwaysOnTop(false);
+}
+
+function notifyCloseToTray() {
+  if (process.platform === 'win32' && !hasShownTrayBalloon && tray) {
+    hasShownTrayBalloon = true;
+    try {
+      tray.displayBalloon({
+        title: 'mypost 已最小化到系统托盘',
+        content: '应用仍在后台运行（本地 Mock 与文档分享服务保持开启），点击托盘图标可重新打开。',
+        iconType: 'info',
+      });
+    } catch {}
+  }
+}
+
+function createTray() {
+  if (tray) return;
+
+  const trayIcon = getTrayIcon();
+  tray = new Tray(trayIcon);
+  tray.setToolTip('mypost - 专为个人打造的纯本地 API 调试与管理工具');
+
+  const contextMenu = Menu.buildFromTemplate([
+    {
+      label: '显示主窗口',
+      click: () => {
+        showMainWindow();
+      },
+    },
+    {
+      label: '最小化到托盘',
+      click: () => {
+        mainWindow?.hide();
+      },
+    },
+    {
+      type: 'separator',
+    },
+    {
+      label: '退出 mypost',
+      click: () => {
+        isQuitting = true;
+        app.quit();
+      },
+    },
+  ]);
+
+  tray.setContextMenu(contextMenu);
+
+  tray.on('click', () => {
+    if (!mainWindow) {
+      createWindow();
+      return;
+    }
+    if (mainWindow.isVisible()) {
+      if (mainWindow.isFocused()) {
+        mainWindow.hide();
+      } else {
+        showMainWindow();
+      }
+    } else {
+      showMainWindow();
+    }
+  });
+
+  tray.on('double-click', () => {
+    showMainWindow();
+  });
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -44,7 +170,7 @@ function createWindow() {
     frame: false,
     titleBarStyle: 'hidden',
     backgroundColor: '#121316',
-    icon: path.join(currentDir, app.isPackaged ? '../dist/icon.png' : '../public/icon.png'),
+    icon: getAppIcon(),
     webPreferences: {
       preload: path.join(currentDir, 'preload.js'),
       spellcheck: false,
@@ -63,6 +189,14 @@ function createWindow() {
   } else {
     mainWindow.loadFile(path.join(currentDir, '../dist/index.html'));
   }
+
+  mainWindow.on('close', (event) => {
+    if (!isQuitting && closeToTray) {
+      event.preventDefault();
+      mainWindow?.hide();
+      notifyCloseToTray();
+    }
+  });
 
   mainWindow.on('closed', () => {
     mainWindow = null;
@@ -86,6 +220,17 @@ function setupIPC() {
   });
   ipcMain.handle('window:close', () => mainWindow?.close());
   ipcMain.handle('window:isMaximized', () => mainWindow?.isMaximized() || false);
+
+  // App & System Tray Controls
+  ipcMain.handle('app:quit', () => {
+    isQuitting = true;
+    app.quit();
+  });
+  ipcMain.handle('app:getCloseToTray', () => closeToTray);
+  ipcMain.handle('app:setCloseToTray', (_e, enabled: boolean) => {
+    closeToTray = !!enabled;
+    return closeToTray;
+  });
 
   // FileDB - Projects
   ipcMain.handle('db:listProjects', () => fileDB.listProjects());
@@ -425,10 +570,32 @@ app.whenReady().then(async () => {
     console.warn('[main] Failed to auto-start DocShareServer:', e);
   }
   createWindow();
+  createTray();
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (mainWindow) {
+      showMainWindow();
+    } else if (BrowserWindow.getAllWindows().length === 0) {
+      createWindow();
+    }
   });
+});
+
+app.on('before-quit', () => {
+  isQuitting = true;
+});
+
+app.on('will-quit', () => {
+  if (tray) {
+    tray.destroy();
+    tray = null;
+  }
+  try {
+    mockServer?.stop();
+  } catch {}
+  try {
+    docShareServer?.stop();
+  } catch {}
 });
 
 app.on('window-all-closed', () => {
@@ -438,8 +605,5 @@ app.on('window-all-closed', () => {
 });
 
 app.on('second-instance', () => {
-  if (mainWindow) {
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.focus();
-  }
+  showMainWindow();
 });

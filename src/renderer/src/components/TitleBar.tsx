@@ -425,7 +425,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
         <button
           onClick={handleClose}
           className="w-8 h-8 flex items-center justify-center hover:bg-red-600/90 text-gray-400 hover:text-foreground transition rounded"
-          title="关闭"
+          title="关闭 (退出到托盘)"
         >
           <X className="w-3.5 h-3.5" />
         </button>

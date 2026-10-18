@@ -18,6 +18,9 @@ import {
   Sparkles,
   ShieldCheck,
   Activity,
+  Sliders,
+  Power,
+  AppWindow,
 } from 'lucide-react';
 import { ProjectInfo, ApiTreeNode } from '../../../common/types';
 import { useTheme } from '../utils/themeManager';
@@ -30,7 +33,7 @@ interface SettingsModalProps {
   treeItems: ApiTreeNode[];
 }
 
-type SettingsTab = 'project' | 'appearance' | 'network' | 'about';
+type SettingsTab = 'project' | 'appearance' | 'system' | 'network' | 'about';
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen,
@@ -42,6 +45,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const { themeMode, setThemeMode } = useTheme();
   const [activeTab, setActiveTab] = useState<SettingsTab>('project');
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  // System & Tray preference with persistence
+  const [closeToTray, setCloseToTray] = useState<boolean>(() => {
+    const saved = localStorage.getItem('mypost:system:closeToTray');
+    return saved !== null ? saved === 'true' : true;
+  });
+
+  const handleCloseToTrayChange = (val: boolean) => {
+    setCloseToTray(val);
+    localStorage.setItem('mypost:system:closeToTray', String(val));
+    if (window.mypostAPI?.setCloseToTray) {
+      window.mypostAPI.setCloseToTray(val);
+    }
+    toast.success(val ? '已开启关闭退出到托盘' : '已关闭退出到托盘（关闭窗口直接退出）');
+  };
 
   // Network preferences with persistence in localStorage
   const [timeoutMs, setTimeoutMs] = useState<number>(() => {
@@ -165,6 +183,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               >
                 <Palette className="w-4 h-4 shrink-0" />
                 <span>界面外观</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveTab('system')}
+                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold transition ${
+                  activeTab === 'system'
+                    ? 'bg-accent text-white shadow-md shadow-orange-500/15'
+                    : 'text-gray-400 hover:text-foreground hover:bg-hover'
+                }`}
+              >
+                <Sliders className="w-4 h-4 shrink-0" />
+                <span>系统与托盘</span>
               </button>
 
               <button
@@ -435,7 +466,84 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
             )}
 
-            {/* 3. 网络与连接 Tab */}
+            {/* 3. 系统与托盘 Tab */}
+            {activeTab === 'system' && (
+              <div className="space-y-5">
+                <div>
+                  <h3 className="text-sm font-bold text-foreground">系统与托盘偏好</h3>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    配置窗口关闭行为、后台驻留运行以及系统托盘行为
+                  </p>
+                </div>
+
+                <div className="space-y-3 text-xs">
+                  <div className="flex items-center justify-between p-3.5 rounded-xl bg-subtle/40 border border-line">
+                    <div className="space-y-0.5 pr-4">
+                      <div className="font-semibold text-foreground flex items-center gap-1.5">
+                        <span>关闭主窗口时退出到系统托盘</span>
+                        <span className="px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/15 text-emerald-400 font-normal">推荐</span>
+                      </div>
+                      <div className="text-gray-400 text-[11px] leading-relaxed">
+                        点击窗口右上角关闭按钮（X）时，将应用最小化隐藏至系统任务栏托盘。本地 Mock 服务与文档分享服务将在后台持续运行不中断。
+                      </div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                      <input
+                        type="checkbox"
+                        checked={closeToTray}
+                        onChange={(e) => handleCloseToTrayChange(e.target.checked)}
+                        className="sr-only peer"
+                      />
+                      <div className="w-9 h-5 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-accent"></div>
+                    </label>
+                  </div>
+
+                  {/* Tray quick guide */}
+                  <div className="p-4 rounded-xl bg-subtle/30 border border-line space-y-2 text-xs">
+                    <div className="font-semibold text-gray-300 flex items-center gap-1.5">
+                      <AppWindow className="w-4 h-4 text-accent" />
+                      <span>系统托盘快捷交互说明</span>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 pt-1 text-[11px]">
+                      <div className="p-2.5 rounded-lg bg-surface border border-line space-y-1">
+                        <div className="font-bold text-gray-200">鼠标单击托盘图标</div>
+                        <div className="text-gray-400 leading-relaxed">若主窗口隐藏则唤醒并聚焦，若当前已处于前台聚焦状态则快速收起隐藏。</div>
+                      </div>
+                      <div className="p-2.5 rounded-lg bg-surface border border-line space-y-1">
+                        <div className="font-bold text-gray-200">鼠标双击托盘图标</div>
+                        <div className="text-gray-400 leading-relaxed">立刻恢复主窗口并置于屏幕最前台展示。</div>
+                      </div>
+                      <div className="p-2.5 rounded-lg bg-surface border border-line space-y-1">
+                        <div className="font-bold text-gray-200">鼠标右键托盘图标</div>
+                        <div className="text-gray-400 leading-relaxed">呼出托盘上下文菜单，支持快速显示主窗口、最小化到托盘以及彻底退出应用。</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Exit application action */}
+                  <div className="flex items-center justify-between p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/20">
+                    <div>
+                      <div className="font-semibold text-rose-300">彻底退出 mypost</div>
+                      <div className="text-gray-400 text-[11px]">关闭主窗口并终止所有正在后台运行的 Mock 引擎和文档分享服务</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (window.mypostAPI?.quitApp) {
+                          window.mypostAPI.quitApp();
+                        }
+                      }}
+                      className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-medium text-xs flex items-center gap-1.5 transition shadow-sm"
+                    >
+                      <Power className="w-3.5 h-3.5" />
+                      <span>退出程序</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* 4. 网络与连接 Tab */}
             {activeTab === 'network' && (
               <div className="space-y-5">
                 <div>
