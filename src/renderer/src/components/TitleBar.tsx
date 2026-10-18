@@ -56,17 +56,16 @@ export const TitleBar: React.FC<TitleBarProps> = ({
   return (
     <div className="h-10 bg-surface border-b border-line flex items-center justify-between px-3 select-none text-xs z-50">
       {/* Brand & Project Selector */}
-      <div className="flex items-center gap-3">
-        <div className="flex items-center gap-2 font-bold text-sm tracking-wide text-foreground">
+      <div className="flex items-center gap-2.5">
+        <div className="flex items-center" title="mypost">
           <img
             src="./icon.svg"
             alt="mypost"
             className="w-5 h-5 object-contain"
           />
-          <span className="text-foreground font-extrabold tracking-tight">
-            mypost
-          </span>
         </div>
+
+        <div className="h-4 w-px bg-line"></div>
 
         {/* Project Dropdown */}
         <div className="relative">

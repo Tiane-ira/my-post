@@ -84,6 +84,11 @@ export const App: React.FC = () => {
     }
   }, []);
 
+  // Dynamic window title with current project name
+  useEffect(() => {
+    document.title = currentProject?.name ? `${currentProject.name} - mypost` : 'mypost';
+  }, [currentProject?.name]);
+
   const handleSwitchProject = (project: ProjectInfo) => {
     if (!project) return;
     if (currentProject?.project_id === project.project_id) return;
