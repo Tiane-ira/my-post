@@ -76,6 +76,27 @@ export const App: React.FC = () => {
 
   // Top-level Navigation View ('apis' | 'shares')
   const [activeNavTab, setActiveNavTab] = useState<'apis' | 'shares'>('apis');
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+
+  // Shortcut Ctrl+B / Cmd+B to toggle sidebar collapse
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
+        const activeElem = document.activeElement;
+        const isEditingInput =
+          activeElem &&
+          (activeElem.tagName === 'INPUT' ||
+            activeElem.tagName === 'TEXTAREA' ||
+            (activeElem as HTMLElement).isContentEditable);
+        if (!isEditingInput) {
+          e.preventDefault();
+          setIsSidebarCollapsed((prev) => !prev);
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   // Initial load
   useEffect(() => {
@@ -977,7 +998,19 @@ export const App: React.FC = () => {
         {/* Far Left Activity Rail */}
         <ActivityBar
           activeTab={activeNavTab}
-          onSelectTab={setActiveNavTab}
+          isSidebarCollapsed={isSidebarCollapsed}
+          onSelectTab={(tab) => {
+            if (tab === 'apis') {
+              if (activeNavTab === 'apis') {
+                setIsSidebarCollapsed((prev) => !prev);
+              } else {
+                setActiveNavTab('apis');
+                setIsSidebarCollapsed(false);
+              }
+            } else {
+              setActiveNavTab(tab);
+            }
+          }}
           onOpenSettings={() => setIsSettingsModalOpen(true)}
         />
 
@@ -988,6 +1021,8 @@ export const App: React.FC = () => {
             <Sidebar
               treeItems={treeItems}
               activeApiId={activeTabId}
+              isCollapsed={isSidebarCollapsed}
+              onToggleCollapse={setIsSidebarCollapsed}
               onSelectApi={(id) => openApiTab(id)}
               onSelectFolder={(id) => openFolderTab(id)}
               onCreateApi={handleCreateApi}
@@ -1012,6 +1047,8 @@ export const App: React.FC = () => {
               <TabManager
                 tabs={tabs}
                 activeTabId={activeTabId}
+                isSidebarCollapsed={isSidebarCollapsed}
+                onExpandSidebar={() => setIsSidebarCollapsed(false)}
                 onSelectTab={handleSelectTab}
                 onCloseTab={handleCloseTab}
                 onNewTab={handleNewTab}
@@ -1098,6 +1135,7 @@ export const App: React.FC = () => {
                   <FolderWorkbench
                     key={activeFolder.target_id}
                     folder={activeFolder}
+                    availableVars={availableVars}
                     treeItems={treeItems}
                     onUpdateFolderName={handleUpdateFolderName}
                     onSelectApi={openApiTab}

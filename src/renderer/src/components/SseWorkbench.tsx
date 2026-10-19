@@ -1043,6 +1043,7 @@ export const SseWorkbench: React.FC<SseWorkbenchProps> = ({
                 keyPlaceholder="请求头 (Header)"
                 valuePlaceholder="值 (Value)"
                 availableVars={availableVars}
+                showType={false}
               />
             )}
 

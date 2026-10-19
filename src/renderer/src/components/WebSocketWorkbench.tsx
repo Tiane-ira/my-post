@@ -862,6 +862,7 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
                   keyPlaceholder="请求头 (Header)"
                   valuePlaceholder="值 (Value)"
                   availableVars={availableVars}
+                  showType={false}
                 />
               )}
 

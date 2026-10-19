@@ -13,6 +13,7 @@ import { ApiTreeNode, HttpMethod, KeyValueItem } from '../../../common/types';
 import { TreeUtils } from '../../../common/treeUtils';
 import { KeyValueTable } from './KeyValueTable';
 import { useFeedback } from './FeedbackContext';
+import { VariableItem } from './VariableInput';
 
 interface FolderWorkbenchProps {
   folder: ApiTreeNode;
@@ -27,6 +28,7 @@ interface FolderWorkbenchProps {
   onSaveFolder?: (folderId: string, detail: any) => Promise<void>;
   onChangeFolder?: (detail: any) => void;
   isDirty?: boolean;
+  availableVars?: Record<string, VariableItem>;
 }
 
 export const FolderWorkbench: React.FC<FolderWorkbenchProps> = ({
@@ -42,6 +44,7 @@ export const FolderWorkbench: React.FC<FolderWorkbenchProps> = ({
   onSaveFolder,
   onChangeFolder,
   isDirty = false,
+  availableVars = {},
 }) => {
   const { confirm, toast } = useFeedback();
   const [folderName, setFolderName] = useState(folder.name);
@@ -388,6 +391,8 @@ export const FolderWorkbench: React.FC<FolderWorkbenchProps> = ({
             <KeyValueTable
               items={commonHeaders}
               onChange={handleHeadersChange}
+              availableVars={availableVars}
+              showType={false}
               keyPlaceholder="请求头 Key (例如 X-User-Token)"
               valuePlaceholder="请求头 Value"
             />
@@ -404,6 +409,8 @@ export const FolderWorkbench: React.FC<FolderWorkbenchProps> = ({
             <KeyValueTable
               items={commonParams}
               onChange={handleParamsChange}
+              availableVars={availableVars}
+              showType={true}
               keyPlaceholder="参数名 (例如 api_version)"
               valuePlaceholder="参数值 (例如 v2.0)"
             />

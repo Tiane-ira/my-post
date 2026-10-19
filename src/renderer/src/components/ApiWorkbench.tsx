@@ -921,6 +921,7 @@ export const ApiWorkbench: React.FC<ApiWorkbenchProps> = ({
                   }
                   availableVars={availableVars}
                   allowFile={true}
+                  isFormData={true}
                   showContentType={true}
                   showType={true}
                   showRequired={true}

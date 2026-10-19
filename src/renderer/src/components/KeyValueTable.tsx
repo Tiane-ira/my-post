@@ -24,6 +24,8 @@ interface KeyValueTableProps {
   showType?: boolean;
   showContentType?: boolean;
   showRequired?: boolean;
+  isFormData?: boolean;
+  showDescription?: boolean;
 }
 
 export const KeyValueTable: React.FC<KeyValueTableProps> = ({
@@ -33,10 +35,34 @@ export const KeyValueTable: React.FC<KeyValueTableProps> = ({
   valuePlaceholder = '参数值',
   availableVars = {},
   allowFile = false,
-  showType = true,
+  showType,
   showContentType = false,
   showRequired = true,
+  isFormData = false,
+  showDescription = true,
 }) => {
+  // Requirement 3: All Header-related parameters do not need type selection
+  const isHeaderTable =
+    keyPlaceholder.toLowerCase().includes('header') ||
+    keyPlaceholder.includes('请求头');
+  const actualShowType = showType !== undefined ? showType : !isHeaderTable;
+
+  const isFormMode = Boolean(isFormData || allowFile);
+
+  const formDataOptions = [
+    { value: 'text', label: 'Text' },
+    { value: 'file', label: 'File' },
+  ];
+
+  const standardTypeOptions: { value: ParamDataType; label: string }[] = [
+    { value: 'string', label: 'string' },
+    { value: 'integer', label: 'integer' },
+    { value: 'number', label: 'number' },
+    { value: 'boolean', label: 'boolean' },
+    { value: 'array', label: 'array' },
+    { value: 'object', label: 'object' },
+  ];
+
   const handleToggle = (index: number) => {
     const next = [...items];
     next[index] = {
@@ -52,12 +78,12 @@ export const KeyValueTable: React.FC<KeyValueTableProps> = ({
     onChange(next);
   };
 
-  const handleTypeChange = (index: number, newType: ParamDataType) => {
+  const handleTypeChange = (index: number, newType: string) => {
     const next = [...items];
     const isFile = newType === 'file';
     next[index] = {
       ...next[index],
-      data_type: newType,
+      data_type: (isFile ? 'file' : newType === 'text' ? 'string' : newType) as ParamDataType,
       type: isFile ? 'file' : 'text',
       // If switching away from file, reset file attributes
       ...(isFile ? {} : { file_path: '', file_name: '', value: next[index].file_path ? '' : next[index].value }),
@@ -154,10 +180,6 @@ export const KeyValueTable: React.FC<KeyValueTableProps> = ({
     onChange([]);
   };
 
-  const typeOptions: ParamDataType[] = allowFile
-    ? ['string', 'file', 'integer', 'boolean', 'array', 'object']
-    : ['string', 'integer', 'number', 'boolean', 'array', 'object'];
-
   return (
     <div className="w-full text-xs space-y-2">
       {/* Top Toolbar: Quick Actions */}
@@ -206,8 +228,12 @@ export const KeyValueTable: React.FC<KeyValueTableProps> = ({
         <div
           className={`grid ${
             showContentType
-              ? 'grid-cols-[36px_1.5fr_1.5fr_1fr_1fr_36px]'
-              : 'grid-cols-[36px_1.5fr_1.7fr_1.2fr_36px]'
+              ? showDescription
+                ? 'grid-cols-[36px_1.5fr_1.5fr_1fr_1fr_36px]'
+                : 'grid-cols-[36px_1.8fr_2fr_1.2fr_36px]'
+              : showDescription
+              ? 'grid-cols-[36px_1.5fr_1.7fr_1.2fr_36px]'
+              : 'grid-cols-[36px_1.5fr_2fr_36px]'
           } bg-subtle border-b border-line text-gray-400 font-semibold py-1.5 px-2`}
         >
           <div className="text-center">启用</div>
@@ -219,7 +245,7 @@ export const KeyValueTable: React.FC<KeyValueTableProps> = ({
           </div>
           <div>{valuePlaceholder}</div>
           {showContentType && <div>内容类型</div>}
-          <div>说明 / 描述</div>
+          {showDescription && <div>说明 / 描述</div>}
           <div className="text-center">操作</div>
         </div>
 
@@ -235,8 +261,12 @@ export const KeyValueTable: React.FC<KeyValueTableProps> = ({
                 key={`${item.param_id || 'item'}-${index}`}
                 className={`grid ${
                   showContentType
-                    ? 'grid-cols-[36px_1.5fr_1.5fr_1fr_1fr_36px]'
-                    : 'grid-cols-[36px_1.5fr_1.7fr_1.2fr_36px]'
+                    ? showDescription
+                      ? 'grid-cols-[36px_1.5fr_1.5fr_1fr_1fr_36px]'
+                      : 'grid-cols-[36px_1.8fr_2fr_1.2fr_36px]'
+                    : showDescription
+                    ? 'grid-cols-[36px_1.5fr_1.7fr_1.2fr_36px]'
+                    : 'grid-cols-[36px_1.5fr_2fr_36px]'
                 } items-center px-2 py-1 gap-2 hover:bg-hover transition ${
                   item.is_checked !== 1 ? 'opacity-50' : ''
                 }`}
@@ -264,26 +294,36 @@ export const KeyValueTable: React.FC<KeyValueTableProps> = ({
                     className="flex-1 min-w-0 bg-transparent border-none text-gray-200 focus:outline-none rounded py-0.5"
                   />
 
-                  {/* Type Pill Selector with native overlay dropdown to prevent overflow clipping */}
-                  {showType && (
-                    <div className="relative shrink-0 flex items-center">
+                  {/* Subtle, clean Type Selector (Postman style, headers omitted, form-data limited to Text/File) */}
+                  {actualShowType && !isHeaderTable && (
+                    <div className="relative shrink-0 flex items-center group/type">
                       <select
-                        value={currentType}
-                        onChange={(e) => handleTypeChange(index, e.target.value as ParamDataType)}
-                        className="appearance-none bg-accent/15 hover:bg-accent/25 border border-accent/30 text-accent font-mono text-[11px] font-semibold pl-2 pr-5 py-0.5 rounded cursor-pointer focus:outline-none focus:ring-1 focus:ring-accent transition"
+                        value={isFormMode ? (isFileType ? 'file' : 'text') : currentType}
+                        onChange={(e) => handleTypeChange(index, e.target.value)}
+                        className="appearance-none bg-subtle/80 hover:bg-hover border border-line hover:border-gray-500/50 text-gray-400 hover:text-gray-200 text-[11px] font-medium pl-2 pr-4 py-0.5 rounded cursor-pointer focus:outline-none focus:border-accent/60 focus:text-foreground transition select-none"
                         title="设置参数类型"
                       >
-                        {typeOptions.map((t) => (
-                          <option
-                            key={t}
-                            value={t}
-                            className="bg-subtle text-gray-200 py-1 font-mono text-xs"
-                          >
-                            {t}
-                          </option>
-                        ))}
+                        {isFormMode
+                          ? formDataOptions.map((opt) => (
+                              <option
+                                key={opt.value}
+                                value={opt.value}
+                                className="bg-surface text-gray-200 py-1 text-xs"
+                              >
+                                {opt.label}
+                              </option>
+                            ))
+                          : standardTypeOptions.map((opt) => (
+                              <option
+                                key={opt.value}
+                                value={opt.value}
+                                className="bg-surface text-gray-200 py-1 font-mono text-xs"
+                              >
+                                {opt.label}
+                              </option>
+                            ))}
                       </select>
-                      <ChevronDown className="w-2.5 h-2.5 text-accent opacity-70 absolute right-1.5 pointer-events-none" />
+                      <ChevronDown className="w-2.5 h-2.5 text-gray-500 group-hover/type:text-gray-300 absolute right-1 pointer-events-none transition-colors" />
                     </div>
                   )}
 
@@ -380,15 +420,17 @@ export const KeyValueTable: React.FC<KeyValueTableProps> = ({
                 )}
 
                 {/* Description */}
-                <input
-                  type="text"
-                  placeholder="描述 / 备注..."
-                  value={item.description || ''}
-                  onChange={(e) =>
-                    handleFieldChange(index, 'description', e.target.value)
-                  }
-                  className="w-full bg-surface/60 border border-transparent focus:border-accent/50 text-gray-400 placeholder-gray-600 rounded px-1.5 py-0.5 focus:outline-none"
-                />
+                {showDescription && (
+                  <input
+                    type="text"
+                    placeholder="说明 / 备注..."
+                    value={item.description || ''}
+                    onChange={(e) =>
+                      handleFieldChange(index, 'description', e.target.value)
+                    }
+                    className="w-full bg-surface/60 border border-transparent focus:border-accent/50 text-gray-400 placeholder-gray-600 rounded px-1.5 py-0.5 focus:outline-none"
+                  />
+                )}
 
                 {/* Delete Row */}
                 <button

@@ -339,26 +339,27 @@ export const VisualFieldEditor: React.FC<VisualFieldEditorProps> = ({
                   />
                 </div>
 
-                {/* Type Selector */}
-                <div className="relative shrink-0 flex items-center">
+                {/* Type Selector (Subtle Postman Style) */}
+                <div className="relative shrink-0 flex items-center group/type">
                   <select
                     value={node.type}
                     onChange={(e) =>
                       handleTypeChange(path, e.target.value as VisualFieldType)
                     }
-                    className="w-full appearance-none bg-accent/15 hover:bg-accent/25 border border-accent/30 text-accent font-mono text-[11px] font-semibold pl-2 pr-5 py-0.5 rounded cursor-pointer focus:outline-none focus:ring-1 focus:ring-accent transition"
+                    className="w-full appearance-none bg-subtle/80 hover:bg-hover border border-line hover:border-gray-500/50 text-gray-400 hover:text-gray-200 text-[11px] font-medium pl-2 pr-4 py-0.5 rounded cursor-pointer focus:outline-none focus:border-accent/60 focus:text-foreground transition select-none"
+                    title="字段类型"
                   >
                     {TYPE_OPTIONS.map((t) => (
                       <option
                         key={t}
                         value={t}
-                        className="bg-subtle text-gray-200 py-1 font-mono text-xs"
+                        className="bg-surface text-gray-200 py-1 font-mono text-xs"
                       >
                         {t}
                       </option>
                     ))}
                   </select>
-                  <ChevronDown className="w-2.5 h-2.5 text-accent opacity-70 absolute right-1.5 pointer-events-none" />
+                  <ChevronDown className="w-2.5 h-2.5 text-gray-500 group-hover/type:text-gray-300 absolute right-1 pointer-events-none transition-colors" />
                 </div>
 
                 {/* Required * button */}

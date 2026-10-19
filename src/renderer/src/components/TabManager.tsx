@@ -10,7 +10,8 @@ import {
   ArrowLeft,
   Trash2,
   Radio,
-  Zap
+  Zap,
+  PanelLeftOpen,
 } from 'lucide-react';
 import { HttpMethod } from '../../../common/types';
 
@@ -33,6 +34,8 @@ interface TabManagerProps {
   onCloseRight?: (id: string) => void;
   onCloseLeft?: (id: string) => void;
   onCloseAll?: () => void;
+  isSidebarCollapsed?: boolean;
+  onExpandSidebar?: () => void;
 }
 
 interface TabContextMenuState {
@@ -52,6 +55,8 @@ export const TabManager: React.FC<TabManagerProps> = ({
   onCloseRight,
   onCloseLeft,
   onCloseAll,
+  isSidebarCollapsed = false,
+  onExpandSidebar,
 }) => {
   const [contextMenu, setContextMenu] = useState<TabContextMenuState | null>(null);
 
@@ -109,6 +114,16 @@ export const TabManager: React.FC<TabManagerProps> = ({
       className="h-9 bg-subtle border-b border-line flex items-center px-1 overflow-x-auto select-none relative"
     >
       <div className="flex items-center gap-1">
+        {isSidebarCollapsed && onExpandSidebar && (
+          <button
+            type="button"
+            onClick={onExpandSidebar}
+            className="p-1.5 mr-0.5 rounded hover:bg-hover border border-line text-gray-400 hover:text-accent transition shrink-0 flex items-center justify-center group"
+            title="展开接口列表栏 (Ctrl+B)"
+          >
+            <PanelLeftOpen className="w-3.5 h-3.5 text-accent group-hover:scale-110 transition-transform" />
+          </button>
+        )}
         {tabs.map((tab, index) => {
           const isActive = tab.id === activeTabId;
           const isFolder = tab.type === 'folder' || !tab.method;

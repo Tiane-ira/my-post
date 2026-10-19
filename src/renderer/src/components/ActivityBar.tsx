@@ -5,12 +5,14 @@ interface ActivityBarProps {
   activeTab: 'apis' | 'shares';
   onSelectTab: (tab: 'apis' | 'shares') => void;
   onOpenSettings: () => void;
+  isSidebarCollapsed?: boolean;
 }
 
 export const ActivityBar: React.FC<ActivityBarProps> = ({
   activeTab,
   onSelectTab,
   onOpenSettings,
+  isSidebarCollapsed = false,
 }) => {
   return (
     <div className="w-12 bg-rail border-r border-line flex flex-col justify-between items-center py-3 shrink-0 select-none z-10">
@@ -21,15 +23,23 @@ export const ActivityBar: React.FC<ActivityBarProps> = ({
           type="button"
           onClick={() => onSelectTab('apis')}
           className={`p-2 rounded-lg transition relative flex flex-col items-center gap-0.5 group ${
-            activeTab === 'apis'
+            activeTab === 'apis' && !isSidebarCollapsed
               ? 'bg-accent/20 text-accent font-semibold'
+              : activeTab === 'apis' && isSidebarCollapsed
+              ? 'text-gray-300 hover:text-accent hover:bg-hover'
               : 'text-gray-400 hover:text-foreground hover:bg-hover'
           }`}
-          title="接口管理 (APIs)"
+          title={
+            activeTab === 'apis'
+              ? isSidebarCollapsed
+                ? '接口管理 (已收起，点击展开)'
+                : '接口管理 (点击收起列表栏)'
+              : '接口管理 (APIs)'
+          }
         >
           <FileCode className="w-5 h-5 transition group-hover:scale-105" />
           <span className="text-[9px] font-medium scale-90">APIs</span>
-          {activeTab === 'apis' && (
+          {activeTab === 'apis' && !isSidebarCollapsed && (
             <span className="absolute left-0 top-2 bottom-2 w-0.5 bg-accent rounded-r"></span>
           )}
         </button>

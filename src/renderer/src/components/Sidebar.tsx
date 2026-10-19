@@ -17,6 +17,7 @@ import {
   Share2,
   Settings,
   PanelLeftClose,
+  PanelLeftOpen,
   Edit2,
   Radio,
   Zap
@@ -42,6 +43,8 @@ interface SidebarProps {
   onOpenImport: () => void;
   onOpenShareFolder?: (folderId: string) => void;
   onOpenSettings: () => void;
+  isCollapsed?: boolean;
+  onToggleCollapse?: (collapsed: boolean) => void;
 }
 
 interface DragOverState {
@@ -71,12 +74,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenImport,
   onOpenShareFolder,
   onOpenSettings,
+  isCollapsed: isCollapsedProp,
+  onToggleCollapse,
 }) => {
   const { confirm, toast } = useFeedback();
   const [isRootCollapsed, setIsRootCollapsed] = useState(false);
   const [collapsedFolders, setCollapsedFolders] = useState<Record<string, boolean>>({});
   const [searchQuery, setSearchQuery] = useState('');
-  const [isTreeCollapsed, setIsTreeCollapsed] = useState(false);
+  const [internalTreeCollapsed, setInternalTreeCollapsed] = useState(false);
+
+  const isCollapsed = isCollapsedProp !== undefined ? isCollapsedProp : internalTreeCollapsed;
+  const handleCollapseChange = (val: boolean) => {
+    setInternalTreeCollapsed(val);
+    onToggleCollapse?.(val);
+  };
 
   // Drag and Drop state
   const [draggedNodeId, setDraggedNodeId] = useState<string | null>(null);
@@ -135,6 +146,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
   const collapseAllFolders = () => {
+    setIsRootCollapsed(true);
     const allCollapsed: Record<string, boolean> = {};
     for (const item of treeItems || []) {
       if (item.target_type === 'folder') {
@@ -661,7 +673,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
   return (
-    <div className="w-64 flex flex-col h-full bg-sidebar border-r border-line relative shrink-0">
+    <div
+      className={`flex flex-col h-full bg-sidebar border-r border-line relative shrink-0 transition-all duration-200 ${
+        isCollapsed ? 'w-0 opacity-0 overflow-hidden border-none pointer-events-none' : 'w-64 opacity-100'
+      }`}
+    >
       {/* Search & Actions Bar */}
         <div className="p-2 border-b border-line flex flex-col gap-2">
           <div className="flex items-center gap-1">
@@ -690,9 +706,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <ChevronsUp className="w-3.5 h-3.5" />
             </button>
             <button
-              onClick={() => setIsTreeCollapsed(true)}
+              onClick={() => handleCollapseChange(true)}
               className="p-1.5 rounded bg-subtle hover:bg-hover border border-line text-gray-400 hover:text-foreground transition"
-              title="完全收起接口列表栏"
+              title="完全收起接口列表栏 (Ctrl+B)"
             >
               <PanelLeftClose className="w-3.5 h-3.5" />
             </button>
