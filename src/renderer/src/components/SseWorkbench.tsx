@@ -390,7 +390,7 @@ export const SseWorkbench: React.FC<SseWorkbenchProps> = ({
     };
   }, [api.target_id]);
 
-  // Interpolate URL with variables and ensure valid protocol
+  // Interpolate URL with variables and ensure valid protocol, reading environment preUrl by default
   const resolveUrl = (rawUrl: string): string => {
     let finalUrl = (rawUrl || '').trim();
     if (!finalUrl) return '';
@@ -405,10 +405,15 @@ export const SseWorkbench: React.FC<SseWorkbenchProps> = ({
     finalUrl = finalUrl.replace(/\{\{([^{}]+)\}\}/g, (_, key) => allVars[key.trim()] || `{{${key}}}`);
 
     if (!finalUrl.startsWith('http://') && !finalUrl.startsWith('https://')) {
-      if (finalUrl.startsWith('/')) {
-        finalUrl = `${(preUrl || 'http://localhost:3000').replace(/\/+$/, '')}${finalUrl}`;
+      if (preUrl) {
+        const cleanPreUrl = preUrl.replace(/\/+$/, '');
+        finalUrl = `${cleanPreUrl}/${finalUrl.replace(/^\/+/, '')}`;
       } else {
-        finalUrl = `https://${finalUrl}`;
+        if (finalUrl.startsWith('/')) {
+          finalUrl = `http://localhost:3000${finalUrl}`;
+        } else {
+          finalUrl = `http://${finalUrl}`;
+        }
       }
     }
     return finalUrl;
@@ -827,6 +832,19 @@ export const SseWorkbench: React.FC<SseWorkbenchProps> = ({
 
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden bg-canvas select-none">
+      {/* Top Bar: Name & Actions */}
+      <div className="h-11 px-4 border-b border-line flex items-center justify-between bg-subtle shrink-0">
+        <div className="flex items-center gap-3 w-1/2">
+          <input
+            type="text"
+            value={api.name || ''}
+            onChange={(e) => onChange({ ...api, name: e.target.value })}
+            placeholder="SSE 接口名称"
+            className="bg-transparent border-none text-sm font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-sky-500 px-2 py-0.5 rounded flex-1"
+          />
+        </div>
+      </div>
+
       {/* Top Header Bar */}
       <div className="h-12 border-b border-line bg-subtle/50 px-4 flex items-center justify-between gap-3 shrink-0">
         <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -843,12 +861,17 @@ export const SseWorkbench: React.FC<SseWorkbenchProps> = ({
           {/* URL Input */}
           <div className="flex-1 min-w-0 flex items-center bg-subtle border border-line rounded px-2.5 focus-within:border-sky-500 transition shadow-inner">
             <Activity className="w-3.5 h-3.5 text-sky-400 mr-2 shrink-0" />
-            <input
-              type="text"
-              value={api.url}
-              onChange={(e) => onChange({ ...api, url: e.target.value })}
-              placeholder="http://localhost:3000/events 或 {{baseUrl}}/stream"
-              className="w-full h-8 bg-transparent text-xs text-foreground placeholder-gray-500 focus:outline-none"
+            {preUrl && (
+              <span className="text-gray-500 text-xs font-mono select-none mr-1.5 shrink-0">
+                {preUrl}
+              </span>
+            )}
+            <VariableInput
+              value={api.url || ''}
+              onChange={(newUrl) => onChange({ ...api, url: newUrl })}
+              availableVars={availableVars}
+              placeholder="/api/stream 或 {{baseUrl}}/stream"
+              className="w-full h-8 bg-transparent text-xs text-foreground placeholder-gray-500 font-mono focus:outline-none"
             />
           </div>
 

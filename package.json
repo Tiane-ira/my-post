@@ -27,7 +27,7 @@
   "build": {
     "appId": "com.tiane.mypost",
     "productName": "mypost",
-    "compression": "maximum",
+    "compression": "normal",
     "electronLanguages": [
       "zh-CN",
       "en-US"
@@ -144,7 +144,9 @@
       "category": "Development",
       "icon": "public/icon.png",
       "executableArgs": [
-        "--no-sandbox"
+        "--no-sandbox",
+        "--disable-dev-shm-usage",
+        "--password-store=basic"
       ],
       "maintainer": "Tiane-ira",
       "description": "mypost - 高效现代化的 API 研发与调试协同工具",

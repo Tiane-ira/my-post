@@ -321,26 +321,44 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
     };
   }, [api.target_id]);
 
+  const wsPreUrl = useMemo(() => {
+    if (!preUrl) return '';
+    let base = preUrl.trim().replace(/\/+$/, '');
+    if (base.startsWith('http://')) return 'ws://' + base.slice(7);
+    if (base.startsWith('https://')) return 'wss://' + base.slice(8);
+    if (!base.startsWith('ws://') && !base.startsWith('wss://')) return 'ws://' + base;
+    return base;
+  }, [preUrl]);
+
   const resolveWsUrl = (rawUrl: string): string => {
-    let finalUrl = rawUrl.trim();
-    if (!finalUrl.startsWith('ws://') && !finalUrl.startsWith('wss://')) {
-      if (finalUrl.startsWith('http://')) {
-        finalUrl = 'ws://' + finalUrl.slice(7);
-      } else if (finalUrl.startsWith('https://')) {
-        finalUrl = 'wss://' + finalUrl.slice(8);
-      } else if (preUrl) {
-        let base = preUrl.replace(/\/+$/, '');
-        if (base.startsWith('http://')) base = 'ws://' + base.slice(7);
-        else if (base.startsWith('https://')) base = 'wss://' + base.slice(8);
-        else if (!base.startsWith('ws://') && !base.startsWith('wss://')) base = 'ws://' + base;
-        finalUrl = `${base}/${finalUrl.replace(/^\/+/, '')}`;
-      } else {
-        finalUrl = 'ws://' + finalUrl;
-      }
+    let finalUrl = (rawUrl || '').trim();
+    if (!finalUrl) return '';
+
+    const allVars: Record<string, string> = {};
+    for (const [k, v] of Object.entries(availableVars || {})) {
+      allVars[k] = v.value;
     }
-    const allVars = { ...globalVars, ...envVars };
+    for (const [k, v] of Object.entries(globalVars || {})) {
+      allVars[k] = v;
+    }
+    for (const [k, v] of Object.entries(envVars || {})) {
+      allVars[k] = v;
+    }
     finalUrl = finalUrl.replace(/\{\{([^{}]+)\}\}/g, (_, key) => allVars[key.trim()] || `{{${key}}}`);
-    return finalUrl;
+
+    if (finalUrl.startsWith('ws://') || finalUrl.startsWith('wss://')) {
+      return finalUrl;
+    }
+    if (finalUrl.startsWith('http://')) {
+      return 'ws://' + finalUrl.slice(7);
+    }
+    if (finalUrl.startsWith('https://')) {
+      return 'wss://' + finalUrl.slice(8);
+    }
+    if (wsPreUrl) {
+      return `${wsPreUrl}/${finalUrl.replace(/^\/+/, '')}`;
+    }
+    return 'ws://' + finalUrl.replace(/^\/+/, '');
   };
 
   // Flush queued incoming messages into React state in a bounded batch
@@ -601,6 +619,19 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
 
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden bg-canvas select-none">
+      {/* Top Bar: Name & Actions */}
+      <div className="h-11 px-4 border-b border-line flex items-center justify-between bg-subtle shrink-0">
+        <div className="flex items-center gap-3 w-1/2">
+          <input
+            type="text"
+            value={api.name || ''}
+            onChange={(e) => onChange({ ...api, name: e.target.value })}
+            placeholder="WebSocket 接口名称"
+            className="bg-transparent border-none text-sm font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-teal-500 px-2 py-0.5 rounded flex-1"
+          />
+        </div>
+      </div>
+
       {/* Top Header Bar */}
       <div className="h-12 border-b border-line bg-subtle/50 px-4 flex items-center justify-between gap-3 shrink-0">
         <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -613,12 +644,17 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
           {/* URL Input */}
           <div className="flex-1 min-w-0 flex items-center bg-subtle border border-line rounded px-2.5 focus-within:border-teal-500 transition shadow-inner">
             <Zap className="w-3.5 h-3.5 text-teal-400 mr-2 shrink-0" />
-            <input
-              type="text"
-              value={api.url}
-              onChange={(e) => onChange({ ...api, url: e.target.value })}
-              placeholder="ws://localhost:8080/ws 或 wss://echo.websocket.events"
-              className="w-full h-8 bg-transparent text-xs text-foreground placeholder-gray-500 focus:outline-none"
+            {wsPreUrl && (
+              <span className="text-gray-500 text-xs font-mono select-none mr-1.5 shrink-0">
+                {wsPreUrl}
+              </span>
+            )}
+            <VariableInput
+              value={api.url || ''}
+              onChange={(newUrl) => onChange({ ...api, url: newUrl })}
+              availableVars={availableVars}
+              placeholder="/ws 或 wss://echo.websocket.events"
+              className="w-full h-8 bg-transparent text-xs text-foreground placeholder-gray-500 font-mono focus:outline-none"
             />
           </div>
 

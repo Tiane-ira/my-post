@@ -16,11 +16,33 @@ const currentDir = typeof __dirname !== 'undefined' ? __dirname : path.dirname(f
 app.setName('mypost');
 app.setAppUserModelId('com.mypost.desktop');
 
-// Linux / Debian 11 compatibility: handle unprivileged user namespaces and AppImage SUID sandbox
+// Linux / 国产操作系统 (银河麒麟 Kylin V10 / 统信 UOS) 无 root 环境及 AppImage 极速启动与兼容性增强
 if (process.platform === 'linux') {
+  // 1. 禁用 Chromium 沙箱 (解决国产系统无 root 账号下 unprivileged user namespace 受限崩溃)
   app.commandLine.appendSwitch('no-sandbox');
   app.commandLine.appendSwitch('disable-gpu-sandbox');
+
+  // 2. 禁用 /dev/shm 共享内存，改走 /tmp (彻底解决 Kylin V10 无 root 下 /dev/shm 权限受限崩溃问题)
+  app.commandLine.appendSwitch('disable-dev-shm-usage');
+
+  // 3. 解决 Linux 启动耗时 20-30 秒卡顿的最核心问题：D-Bus Keyring/密钥环超时
+  // Chromium 默认尝试通过 D-Bus 查找 GNOME Keyring / KWallet，国产麒麟或受限环境下若未启动该守护进程，
+  // 会硬等待 D-Bus 超时 25 秒才继续启动！强制使用 basic 存储立即秒开！
+  app.commandLine.appendSwitch('password-store', 'basic');
+
+  // 4. 禁用 XDG Portal D-Bus 超时检测与音频沙箱 (消除麒麟系统 D-Bus 调用挂起)
+  app.commandLine.appendSwitch('disable-features', 'UsePortal,AudioServiceSandbox');
+
+  // 5. 静音 GTK canberra-gtk-module 缺失告警
+  if (process.env.GTK_MODULES) {
+    process.env.GTK_MODULES = process.env.GTK_MODULES
+      .split(':')
+      .filter((m) => !m.includes('canberra'))
+      .join(':');
+  }
 }
+
+
 
 // Single instance lock
 const gotLock = app.requestSingleInstanceLock();
@@ -550,15 +572,15 @@ function setupIPC() {
   });
 }
 
-app.whenReady().then(async () => {
+app.whenReady().then(() => {
   setupIPC();
-  try {
-    await docShareServer.start();
-  } catch (e) {
-    console.warn('[main] Failed to auto-start DocShareServer:', e);
-  }
   createWindow();
   createTray();
+
+  // 异步在后台启动文档局域网共享服务，避免阻塞主窗口极速呈现
+  docShareServer.start().catch((e) => {
+    console.warn('[main] Failed to auto-start DocShareServer in background:', e);
+  });
 
   app.on('activate', () => {
     if (mainWindow) {

@@ -26,6 +26,10 @@ interface FolderWorkbenchProps {
   onCreateSubFolder: (parentId: string) => void;
   onDeleteFolder: (folderId: string) => void;
   onOpenShare: (folderId: string) => void;
+  folderDetail?: any;
+  onSaveFolder?: (folderId: string, detail: any) => Promise<void>;
+  onChangeFolder?: (detail: any) => void;
+  isDirty?: boolean;
 }
 
 export const FolderWorkbench: React.FC<FolderWorkbenchProps> = ({
@@ -37,14 +41,31 @@ export const FolderWorkbench: React.FC<FolderWorkbenchProps> = ({
   onCreateSubFolder,
   onDeleteFolder,
   onOpenShare,
+  folderDetail,
+  onSaveFolder,
+  onChangeFolder,
+  isDirty = false,
 }) => {
   const { confirm, toast } = useFeedback();
   const [folderName, setFolderName] = useState(folder.name);
   const [activeTab, setActiveTab] = useState<'apis' | 'headers' | 'params' | 'desc'>('apis');
-  const [description, setDescription] = useState('');
-  const [commonHeaders, setCommonHeaders] = useState<KeyValueItem[]>([]);
-  const [commonParams, setCommonParams] = useState<KeyValueItem[]>([]);
+  const [description, setDescription] = useState(folderDetail?.description || '');
+  const [commonHeaders, setCommonHeaders] = useState<KeyValueItem[]>(
+    folderDetail?.request?.header?.parameter || []
+  );
+  const [commonParams, setCommonParams] = useState<KeyValueItem[]>(
+    folderDetail?.request?.query?.parameter || []
+  );
   const [savedTip, setSavedTip] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  // Sync state when switching folders or receiving loaded details
+  React.useEffect(() => {
+    setFolderName(folder.name);
+    setDescription(folderDetail?.description || '');
+    setCommonHeaders(folderDetail?.request?.header?.parameter || []);
+    setCommonParams(folderDetail?.request?.query?.parameter || []);
+  }, [folder.target_id, folder.name, folderDetail]);
 
   const directChildren = TreeUtils.getFolderChildren(treeItems, folder.target_id, false);
   const allDescendants = TreeUtils.getFolderChildren(treeItems, folder.target_id, true);
@@ -59,11 +80,89 @@ export const FolderWorkbench: React.FC<FolderWorkbenchProps> = ({
     }
   };
 
-  const handleSaveConfig = () => {
-    setSavedTip(true);
-    setTimeout(() => setSavedTip(false), 2000);
-    toast.success('目录公共配置已保存');
+  const handleHeadersChange = (headers: KeyValueItem[]) => {
+    setCommonHeaders(headers);
+    onChangeFolder?.({
+      name: folderName,
+      description,
+      request: {
+        header: { parameter: headers },
+        query: { parameter: commonParams },
+      },
+    });
   };
+
+  const handleParamsChange = (params: KeyValueItem[]) => {
+    setCommonParams(params);
+    onChangeFolder?.({
+      name: folderName,
+      description,
+      request: {
+        header: { parameter: commonHeaders },
+        query: { parameter: params },
+      },
+    });
+  };
+
+  const handleDescChange = (val: string) => {
+    setDescription(val);
+    onChangeFolder?.({
+      name: folderName,
+      description: val,
+      request: {
+        header: { parameter: commonHeaders },
+        query: { parameter: commonParams },
+      },
+    });
+  };
+
+  const handleNameChange = (val: string) => {
+    setFolderName(val);
+    onChangeFolder?.({
+      name: val,
+      description,
+      request: {
+        header: { parameter: commonHeaders },
+        query: { parameter: commonParams },
+      },
+    });
+  };
+
+  const handleSaveConfig = async () => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      if (onSaveFolder) {
+        await onSaveFolder(folder.target_id, {
+          name: folderName.trim() || folder.name,
+          description,
+          request: {
+            header: { parameter: commonHeaders },
+            query: { parameter: commonParams },
+          },
+        });
+      }
+      setSavedTip(true);
+      setTimeout(() => setSavedTip(false), 2000);
+      toast.success('目录公共配置已保存');
+    } catch (e: any) {
+      toast.error(`保存失败: ${e.message || e}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Keyboard shortcut Ctrl+S
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        handleSaveConfig();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [folder.target_id, folderName, description, commonHeaders, commonParams, onSaveFolder]);
 
   const getMethodBadge = (method: HttpMethod | '', targetType?: string) => {
     if (targetType === 'sse') {
@@ -105,7 +204,7 @@ export const FolderWorkbench: React.FC<FolderWorkbenchProps> = ({
                   type="text"
                   value={folderName}
                   disabled={isRoot}
-                  onChange={(e) => setFolderName(e.target.value)}
+                  onChange={(e) => handleNameChange(e.target.value)}
                   onBlur={handleNameBlur}
                   className={`bg-transparent border-none text-base font-bold text-foreground focus:outline-none focus:ring-1 focus:ring-amber-500 px-1 py-0.5 rounded ${
                     isRoot ? 'cursor-default opacity-90' : ''
@@ -125,6 +224,16 @@ export const FolderWorkbench: React.FC<FolderWorkbenchProps> = ({
 
           {/* Action Buttons */}
           <div className="flex items-center gap-2">
+            <button
+              onClick={handleSaveConfig}
+              disabled={saving}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-xs text-amber-400 font-semibold transition"
+              title="保存当前目录配置 (Ctrl+S)"
+            >
+              <Save className="w-3.5 h-3.5" />
+              <span>{savedTip ? '已保存！' : '保存目录'}</span>
+            </button>
+
             <button
               onClick={() => onCreateApi(folder.target_id)}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent/15 hover:bg-accent/25 border border-accent/30 text-xs text-accent font-semibold transition"
@@ -327,7 +436,7 @@ export const FolderWorkbench: React.FC<FolderWorkbenchProps> = ({
             </div>
             <KeyValueTable
               items={commonHeaders}
-              onChange={setCommonHeaders}
+              onChange={handleHeadersChange}
               keyPlaceholder="请求头 Key (例如 X-User-Token)"
               valuePlaceholder="请求头 Value"
             />
@@ -345,7 +454,7 @@ export const FolderWorkbench: React.FC<FolderWorkbenchProps> = ({
             </div>
             <KeyValueTable
               items={commonParams}
-              onChange={setCommonParams}
+              onChange={handleParamsChange}
               keyPlaceholder="参数名 (例如 api_version)"
               valuePlaceholder="参数值 (例如 v2.0)"
             />
@@ -358,7 +467,7 @@ export const FolderWorkbench: React.FC<FolderWorkbenchProps> = ({
             <label className="text-xs font-semibold text-gray-300 block">目录模块说明与业务规范</label>
             <textarea
               value={description}
-              onChange={(e) => setDescription(e.target.value)}
+              onChange={(e) => handleDescChange(e.target.value)}
               rows={8}
               className="w-full bg-sidebar border border-line rounded-xl p-4 text-xs text-gray-200 focus:outline-none focus:border-amber-500 font-mono leading-relaxed"
               placeholder="编写该模块的业务说明、规范文档或注意事项..."

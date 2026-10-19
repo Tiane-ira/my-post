@@ -7,6 +7,7 @@ import {
   HttpMethod,
   HttpResponseResult,
   ProjectInfo,
+  KeyValueItem,
 } from '../../common/types';
 import { TitleBar } from './components/TitleBar';
 import { Sidebar } from './components/Sidebar';
@@ -62,6 +63,7 @@ export const App: React.FC = () => {
   const [activeDetail, setActiveDetail] = useState<ApiDetail | null>(null);
   const [activeFolder, setActiveFolder] = useState<ApiTreeNode | null>(null);
   const [streamingTabs, setStreamingTabs] = useState<Record<string, ApiDetail>>({});
+  const [folderDetails, setFolderDetails] = useState<Record<string, any>>({});
   const apiDetailsCacheRef = React.useRef<Record<string, ApiDetail>>({});
 
   // Modals
@@ -210,7 +212,7 @@ export const App: React.FC = () => {
     }
   };
 
-  const openFolderTab = (folderId: string) => {
+  const openFolderTab = async (folderId: string) => {
     let folder: ApiTreeNode | undefined;
     if (folderId === '0') {
       folder = {
@@ -241,6 +243,19 @@ export const App: React.FC = () => {
     setActiveTabId(folderId);
     setActiveFolder(folder);
     setActiveDetail(null);
+
+    // Load folder details from cache or backend if not loaded
+    if (currentProject && !apiDetailsCacheRef.current[folderId]) {
+      try {
+        const detail = await window.mypostAPI.getApiDetail(currentProject.project_id, folderId);
+        if (detail) {
+          apiDetailsCacheRef.current[folderId] = detail;
+          setFolderDetails((prev) => ({ ...prev, [folderId]: detail }));
+        }
+      } catch (e) {
+        console.warn('Failed to load folder detail:', e);
+      }
+    }
   };
 
   const openApiTab = async (targetId: string) => {
@@ -354,10 +369,10 @@ export const App: React.FC = () => {
     let defaultUrl = '';
     if (targetType === 'sse') {
       defaultName = '未命名 SSE 请求';
-      defaultUrl = 'http://localhost:3000/api/stream';
+      defaultUrl = '/api/stream';
     } else if (targetType === 'websocket') {
       defaultName = '未命名 WebSocket';
-      defaultUrl = 'ws://echo.websocket.events';
+      defaultUrl = '/ws';
     }
 
     const newApi: ApiDetail = {
@@ -428,6 +443,64 @@ export const App: React.FC = () => {
           ? { ...t, name: updated.name, method: updated.method, isDirty: true }
           : t
       )
+    );
+  };
+
+  const handleFolderChange = (folderId: string, updated: any) => {
+    const existing = apiDetailsCacheRef.current[folderId] || {};
+    const merged = { ...existing, ...updated };
+    apiDetailsCacheRef.current[folderId] = merged;
+    modifiedApisRef.current[folderId] = merged;
+    setFolderDetails((prev) => ({ ...prev, [folderId]: merged }));
+    setTabs((prev) =>
+      prev.map((t) =>
+        t.id === folderId ? { ...t, name: updated.name || t.name, isDirty: true } : t
+      )
+    );
+  };
+
+  const handleSaveFolder = async (folderId: string, updatedData?: any) => {
+    if (!currentProject) return;
+    const existing = apiDetailsCacheRef.current[folderId] || {};
+    const data = updatedData || existing;
+    const toSave: ApiDetail = {
+      ...existing,
+      target_id: folderId,
+      parent_id: existing.parent_id || '0',
+      project_id: currentProject.project_id,
+      target_type: 'folder',
+      name: data.name || existing.name || '新建目录',
+      method: '' as any,
+      url: '',
+      sort: existing.sort || 0,
+      status: 1,
+      description: data.description || '',
+      request: {
+        query: { parameter: data.request?.query?.parameter || [] },
+        header: { parameter: data.request?.header?.parameter || [] },
+        body: { mode: 'none' },
+        auth: { type: 'none' },
+      },
+    };
+    await window.mypostAPI.saveApiDetail(currentProject.project_id, folderId, toSave);
+    apiDetailsCacheRef.current[folderId] = toSave;
+    setFolderDetails((prev) => ({ ...prev, [folderId]: toSave }));
+    delete modifiedApisRef.current[folderId];
+
+    // If folder name changed, update project tree
+    if (folderId !== '0' && data.name && data.name !== existing.name) {
+      const nextTree = treeItems.map((n) =>
+        n.target_id === folderId ? { ...n, name: data.name } : n
+      );
+      await window.mypostAPI.saveProjectTree(currentProject.project_id, nextTree);
+      setTreeItems(nextTree);
+      if (activeFolder && activeFolder.target_id === folderId) {
+        setActiveFolder({ ...activeFolder, name: data.name });
+      }
+    }
+
+    setTabs((prev) =>
+      prev.map((t) => (t.id === folderId ? { ...t, name: toSave.name, isDirty: false } : t))
     );
   };
 
@@ -565,8 +638,64 @@ export const App: React.FC = () => {
       }
     }
 
+    // Collect ancestor folder common parameters (Header & Query)
+    const folderHeaders: KeyValueItem[] = [];
+    const folderQueryParams: KeyValueItem[] = [];
+    let curParentId = apiToSend.parent_id;
+    while (curParentId && curParentId !== '0') {
+      const parentNode = treeItems.find((t) => t.target_id === curParentId);
+      if (!parentNode) break;
+      let parentDetail: ApiDetail | null = apiDetailsCacheRef.current[curParentId] || null;
+      if (!parentDetail && currentProject) {
+        try {
+          const loaded = await window.mypostAPI.getApiDetail(currentProject.project_id, curParentId);
+          if (loaded) {
+            parentDetail = loaded;
+            apiDetailsCacheRef.current[curParentId] = loaded;
+          }
+        } catch {}
+      }
+      if (parentDetail?.request?.header?.parameter) {
+        folderHeaders.unshift(...parentDetail.request.header.parameter.filter((h: any) => h.is_checked === 1));
+      }
+      if (parentDetail?.request?.query?.parameter) {
+        folderQueryParams.unshift(...parentDetail.request.query.parameter.filter((q: any) => q.is_checked === 1));
+      }
+      curParentId = parentNode.parent_id;
+    }
+
+    // Also check root folder ('0')
+    let rootDetail: ApiDetail | null = apiDetailsCacheRef.current['0'] || null;
+    if (!rootDetail && currentProject) {
+      try {
+        const loadedRoot = await window.mypostAPI.getApiDetail(currentProject.project_id, '0');
+        if (loadedRoot) {
+          rootDetail = loadedRoot;
+          apiDetailsCacheRef.current['0'] = loadedRoot;
+        }
+      } catch {}
+    }
+    if (rootDetail?.request?.header?.parameter) {
+      folderHeaders.unshift(...rootDetail.request.header.parameter.filter((h: any) => h.is_checked === 1));
+    }
+    if (rootDetail?.request?.query?.parameter) {
+      folderQueryParams.unshift(...rootDetail.request.query.parameter.filter((q: any) => q.is_checked === 1));
+    }
+
+    // Merge folder headers and query params before apiToSend's own params
+    const mergedHeaders = [...folderHeaders, ...(apiToSend.request.header?.parameter || [])];
+    const mergedQuery = [...folderQueryParams, ...(apiToSend.request.query?.parameter || [])];
+    const finalApiToSend: ApiDetail = {
+      ...apiToSend,
+      request: {
+        ...apiToSend.request,
+        header: { parameter: mergedHeaders },
+        query: { ...apiToSend.request.query, parameter: mergedQuery },
+      },
+    };
+
     const preUrl = currentEnv?.pre_url || '';
-    return window.mypostAPI.sendRequest(apiToSend, envVars, globalVars, preUrl);
+    return window.mypostAPI.sendRequest(finalApiToSend, envVars, globalVars, preUrl);
   };
 
   const handleCreateApi = async (
@@ -583,11 +712,11 @@ export const App: React.FC = () => {
     if (targetType === 'sse') {
       defaultName = '新建 SSE 流式接口';
       defaultMethod = 'GET';
-      defaultUrl = 'http://localhost:3000/api/stream';
+      defaultUrl = '/api/stream';
     } else if (targetType === 'websocket') {
       defaultName = '新建 WebSocket 接口';
       defaultMethod = 'GET';
-      defaultUrl = 'ws://echo.websocket.events';
+      defaultUrl = '/ws';
     }
 
     const newApi: ApiDetail = {
@@ -979,6 +1108,13 @@ export const App: React.FC = () => {
                       setShareFolderId(fId);
                       setIsShareModalOpen(true);
                     }}
+                    folderDetail={
+                      folderDetails[activeFolder.target_id] ||
+                      apiDetailsCacheRef.current[activeFolder.target_id]
+                    }
+                    onSaveFolder={(fId, detail) => handleSaveFolder(fId, detail)}
+                    onChangeFolder={(detail) => handleFolderChange(activeFolder.target_id, detail)}
+                    isDirty={tabs.find((t) => t.id === activeFolder.target_id)?.isDirty}
                   />
                 )}
 
