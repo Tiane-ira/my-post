@@ -5,12 +5,9 @@ import {
   FilePlus,
   Share2,
   Trash2,
-  Layers,
-  FileText,
-  Clock,
   ArrowRight,
   Sparkles,
-  Save
+  Save,
 } from 'lucide-react';
 import { ApiTreeNode, HttpMethod, KeyValueItem } from '../../../common/types';
 import { TreeUtils } from '../../../common/treeUtils';
@@ -191,106 +188,106 @@ export const FolderWorkbench: React.FC<FolderWorkbenchProps> = ({
   const displayBreadcrumbs = isRoot ? ['根目录'] : breadcrumbs;
 
   return (
-      <div className="flex-1 flex flex-col h-full bg-canvas overflow-hidden select-none">
-        {/* Top Bar */}
-        <div className="h-12 px-6 border-b border-line flex items-center justify-between bg-subtle">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 shadow-sm">
-              <Folder className="w-4 h-4" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  value={folderName}
-                  disabled={isRoot}
-                  onChange={(e) => handleNameChange(e.target.value)}
-                  onBlur={handleNameBlur}
-                  className={`bg-transparent border-none text-base font-bold text-foreground focus:outline-none focus:ring-1 focus:ring-amber-500 px-1 py-0.5 rounded ${
-                    isRoot ? 'cursor-default opacity-90' : ''
-                  }`}
-                  placeholder="目录名称"
-                />
-                <span className="text-[11px] px-2 py-0.5 rounded-full bg-subtle border border-line text-gray-400 font-mono">
-                  {childApis.length} 个接口
-                </span>
-              </div>
-              <div className="text-[10px] text-gray-500 flex items-center gap-1 mt-0.5">
-                <span>路径：</span>
-                <span>{displayBreadcrumbs.join(' / ')}</span>
-              </div>
-            </div>
+    <div className="flex-1 flex flex-col h-full bg-canvas overflow-hidden select-none">
+      {/* Top Bar: Folder Name & Streamlined Actions */}
+      <div className="h-12 px-5 border-b border-line flex items-center justify-between bg-subtle shrink-0">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="w-7 h-7 rounded-lg bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
+            <Folder className="w-4 h-4" />
           </div>
-
-          {/* Action Buttons */}
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleSaveConfig}
-              disabled={saving}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-xs text-amber-400 font-semibold transition"
-              title="保存当前目录配置 (Ctrl+S)"
-            >
-              <Save className="w-3.5 h-3.5" />
-              <span>{savedTip ? '已保存！' : '保存目录'}</span>
-            </button>
-
-            <button
-              onClick={() => onCreateApi(folder.target_id)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent/15 hover:bg-accent/25 border border-accent/30 text-xs text-accent font-semibold transition"
-              title="在此目录下新建接口"
-            >
-              <FilePlus className="w-3.5 h-3.5" />
-              <span>新建接口</span>
-            </button>
-
-            <button
-              onClick={() => onCreateSubFolder(folder.target_id)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-subtle hover:bg-hover border border-line text-xs text-gray-300 font-medium transition"
-              title="在此目录下新建子目录"
-            >
-              <FolderPlus className="w-3.5 h-3.5 text-amber-400" />
-              <span>新建子目录</span>
-            </button>
-
-            <button
-              onClick={() => onOpenShare(folder.target_id)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-subtle hover:bg-hover border border-line text-xs text-gray-300 font-medium transition"
-              title={isRoot ? "分享根目录文档 (项目全部接口)" : "分享或导出此目录文档"}
-            >
-              <Share2 className="w-3.5 h-3.5 text-sky-400" />
-              <span>{isRoot ? '分享根目录文档' : '分享目录'}</span>
-            </button>
-
-            <div className="h-4 w-[1px] bg-subtle"></div>
-
-            <button
-              onClick={async () => {
-                const ok = await confirm({
-                  title: isRoot ? '清空根目录下所有接口' : '删除目录确认',
-                  message: isRoot
-                    ? `确认清空根目录下的全部接口与子目录吗？此操作将永久删除当前项目中的全部接口数据 (${childApis.length} 个接口)，且无法恢复。`
-                    : `确认删除目录 "${folder.name}" 及其全部子接口吗？此操作无法撤销。`,
-                  type: 'danger',
-                  confirmText: isRoot ? '确认清空全部' : '确认删除',
-                  cancelText: '取消',
-                });
-                if (ok) {
-                  onDeleteFolder(folder.target_id);
-                  toast.success(isRoot ? '已清空根目录下的所有接口' : `已删除目录 "${folder.name}"`);
-                }
-              }}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-xs text-rose-400 transition"
-              title={isRoot ? '清空根目录下所有接口' : '删除目录'}
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              {isRoot && <span className="font-medium">清空所有接口</span>}
-            </button>
+          <div className="flex items-center gap-2 min-w-0">
+            <input
+              type="text"
+              value={folderName}
+              disabled={isRoot}
+              onChange={(e) => handleNameChange(e.target.value)}
+              onBlur={handleNameBlur}
+              className={`bg-transparent border-none text-sm font-bold text-foreground focus:outline-none focus:ring-1 focus:ring-amber-500 px-1.5 py-0.5 rounded ${
+                isRoot ? 'cursor-default opacity-90' : ''
+              }`}
+              placeholder="目录名称"
+            />
+            <span className="text-[11px] px-2 py-0.5 rounded bg-subtle border border-line text-gray-400 font-mono shrink-0">
+              {displayBreadcrumbs.join(' / ')}
+            </span>
           </div>
         </div>
 
+        {/* Action Buttons: Minimal, clean, and intuitive */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          {/* Primary Action: New API */}
+          <button
+            onClick={() => onCreateApi(folder.target_id)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent/15 hover:bg-accent/25 border border-accent/30 text-xs text-accent font-semibold transition"
+            title="在此目录下新建接口"
+          >
+            <FilePlus className="w-3.5 h-3.5" />
+            <span>新建接口</span>
+          </button>
+
+          {/* Quick Subfolder */}
+          <button
+            onClick={() => onCreateSubFolder(folder.target_id)}
+            className="p-1.5 rounded-lg bg-subtle hover:bg-hover border border-line text-gray-300 hover:text-amber-400 transition"
+            title="新建子目录"
+          >
+            <FolderPlus className="w-4 h-4" />
+          </button>
+
+          {/* Share */}
+          <button
+            onClick={() => onOpenShare(folder.target_id)}
+            className="p-1.5 rounded-lg bg-subtle hover:bg-hover border border-line text-gray-300 hover:text-sky-400 transition"
+            title={isRoot ? "分享根目录文档 (项目全部接口)" : "分享目录文档"}
+          >
+            <Share2 className="w-4 h-4" />
+          </button>
+
+          {/* Delete */}
+          <button
+            onClick={async () => {
+              const ok = await confirm({
+                title: isRoot ? '清空根目录下所有接口' : '删除目录确认',
+                message: isRoot
+                  ? `确认清空根目录下的全部接口与子目录吗？此操作将永久删除当前项目中的全部接口数据 (${childApis.length} 个接口)，且无法恢复。`
+                  : `确认删除目录 "${folder.name}" 及其全部子接口吗？此操作无法撤销。`,
+                type: 'danger',
+                confirmText: isRoot ? '确认清空全部' : '确认删除',
+                cancelText: '取消',
+              });
+              if (ok) {
+                onDeleteFolder(folder.target_id);
+                toast.success(isRoot ? '已清空根目录下的所有接口' : `已删除目录 "${folder.name}"`);
+              }
+            }}
+            className="p-1.5 rounded-lg bg-subtle hover:bg-rose-500/20 border border-line hover:border-rose-500/30 text-gray-400 hover:text-rose-400 transition"
+            title={isRoot ? '清空根目录下所有接口' : '删除此目录'}
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+
+          <div className="h-4 w-[1px] bg-line mx-1" />
+
+          {/* Single, Clear Save Button */}
+          <button
+            onClick={handleSaveConfig}
+            disabled={saving}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition shadow-sm ${
+              isDirty
+                ? 'bg-amber-500 hover:bg-amber-600 text-white shadow-amber-500/20'
+                : 'bg-subtle hover:bg-hover border border-line text-gray-200'
+            }`}
+            title="保存当前目录配置 (Ctrl+S)"
+          >
+            <Save className="w-3.5 h-3.5" />
+            <span>{savedTip ? '已保存！' : '保存'}</span>
+          </button>
+        </div>
+      </div>
+
       {/* Tabs */}
-      <div className="h-10 px-6 bg-surface border-b border-line flex items-center justify-between text-xs">
-        <div className="flex items-center gap-2">
+      <div className="h-10 px-5 bg-surface border-b border-line flex items-center justify-between text-xs shrink-0">
+        <div className="flex items-center gap-1">
           <button
             onClick={() => setActiveTab('apis')}
             className={`px-3 py-1.5 rounded-md font-semibold transition ${
@@ -299,7 +296,7 @@ export const FolderWorkbench: React.FC<FolderWorkbenchProps> = ({
                 : 'text-gray-400 hover:text-gray-200'
             }`}
           >
-            子接口概览 ({childApis.length})
+            接口列表 ({childApis.length})
           </button>
 
           <button
@@ -310,7 +307,7 @@ export const FolderWorkbench: React.FC<FolderWorkbenchProps> = ({
                 : 'text-gray-400 hover:text-gray-200'
             }`}
           >
-            目录公共 Header
+            公共 Header {commonHeaders.filter((h) => h.is_checked === 1 && h.key).length > 0 && `(${commonHeaders.filter((h) => h.is_checked === 1 && h.key).length})`}
           </button>
 
           <button
@@ -321,7 +318,7 @@ export const FolderWorkbench: React.FC<FolderWorkbenchProps> = ({
                 : 'text-gray-400 hover:text-gray-200'
             }`}
           >
-            目录公共 Query
+            公共 Query {commonParams.filter((p) => p.is_checked === 1 && p.key).length > 0 && `(${commonParams.filter((p) => p.is_checked === 1 && p.key).length})`}
           </button>
 
           <button
@@ -332,64 +329,22 @@ export const FolderWorkbench: React.FC<FolderWorkbenchProps> = ({
                 : 'text-gray-400 hover:text-gray-200'
             }`}
           >
-            目录说明文档
+            说明文档 {description.trim() ? '(已填写)' : ''}
           </button>
         </div>
-
-        <button
-          onClick={handleSaveConfig}
-          className="flex items-center gap-1.5 px-3 py-1 rounded bg-subtle hover:bg-hover border border-line text-xs text-gray-200 transition"
-        >
-          <Save className="w-3.5 h-3.5 text-amber-400" />
-          <span>{savedTip ? '已保存！' : '保存目录配置'}</span>
-        </button>
       </div>
 
       {/* Main Content Area */}
-      <div className="flex-1 p-6 overflow-y-auto max-w-5xl mx-auto w-full">
-        {/* Child APIs Tab */}
+      <div className="flex-1 p-5 overflow-y-auto max-w-5xl mx-auto w-full">
+        {/* Child APIs Tab: Clean, direct interface list without redundant bulky cards */}
         {activeTab === 'apis' && (
-          <div className="space-y-6">
-            {/* Quick Stats Grid */}
-            <div className="grid grid-cols-3 gap-4">
-              <div className="bg-surface border border-line rounded-xl p-4 flex items-center justify-between">
-                <div>
-                  <div className="text-gray-400 text-xs">下级接口总数</div>
-                  <div className="text-2xl font-black text-foreground mt-1">{childApis.length}</div>
-                </div>
-                <div className="w-10 h-10 rounded-lg bg-accent/15 border border-accent/30 flex items-center justify-center text-accent">
-                  <FileText className="w-5 h-5" />
-                </div>
-              </div>
-
-              <div className="bg-surface border border-line rounded-xl p-4 flex items-center justify-between">
-                <div>
-                  <div className="text-gray-400 text-xs">子目录总数</div>
-                  <div className="text-2xl font-black text-foreground mt-1">{subFolders.length}</div>
-                </div>
-                <div className="w-10 h-10 rounded-lg bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400">
-                  <Folder className="w-5 h-5" />
-                </div>
-              </div>
-
-              <div className="bg-surface border border-line rounded-xl p-4 flex items-center justify-between">
-                <div>
-                  <div className="text-gray-400 text-xs">公共 Header 规则</div>
-                  <div className="text-2xl font-black text-foreground mt-1">
-                    {commonHeaders.filter((h) => h.is_checked === 1).length} 项
-                  </div>
-                </div>
-                <div className="w-10 h-10 rounded-lg bg-sky-500/15 border border-sky-500/30 flex items-center justify-center text-sky-400">
-                  <Layers className="w-5 h-5" />
-                </div>
-              </div>
-            </div>
-
-            {/* APIs List Table */}
-            <div className="border border-line rounded-xl overflow-hidden bg-surface shadow-xl">
-              <div className="px-4 py-3 bg-surface border-b border-line flex items-center justify-between">
-                <span className="text-xs font-bold text-gray-200">目录内接口列表</span>
-                <span className="text-[11px] text-gray-400">点击任意接口可直接打开进行调试</span>
+          <div className="space-y-3">
+            <div className="border border-line rounded-xl overflow-hidden bg-surface shadow-sm">
+              <div className="px-4 py-2.5 bg-subtle/50 border-b border-line flex items-center justify-between">
+                <span className="text-xs font-bold text-gray-300">
+                  {isRoot ? '项目全部接口' : `"${folder.name}" 目录内接口`} ({childApis.length})
+                </span>
+                <span className="text-[11px] text-gray-500">点击任意接口直接打开调试</span>
               </div>
 
               {childApis.length > 0 ? (
@@ -398,21 +353,19 @@ export const FolderWorkbench: React.FC<FolderWorkbenchProps> = ({
                     <div
                       key={apiItem.target_id}
                       onClick={() => onSelectApi(apiItem.target_id)}
-                      className="px-4 py-3 hover:bg-hover cursor-pointer transition flex items-center justify-between group"
+                      className="px-4 py-2.5 hover:bg-hover cursor-pointer transition flex items-center justify-between group"
                     >
-                      <div className="flex items-center gap-3 min-w-0">
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
                         {getMethodBadge(apiItem.method, apiItem.target_type)}
-                        <span className="text-xs font-semibold text-gray-200 group-hover:text-amber-400 transition truncate">
+                        <span className="text-xs font-medium text-gray-200 group-hover:text-amber-400 transition truncate max-w-sm">
                           {apiItem.name}
                         </span>
-                        <code className="text-[11px] font-mono text-gray-400 truncate max-w-xs">
+                        <code className="text-[11px] font-mono text-gray-500 group-hover:text-gray-400 truncate max-w-md">
                           {apiItem.url || '/'}
                         </code>
                       </div>
 
-                      <div className="flex items-center gap-3">
-                        <ArrowRight className="w-3.5 h-3.5 text-gray-500 group-hover:text-amber-400 group-hover:translate-x-0.5 transition" />
-                      </div>
+                      <ArrowRight className="w-3.5 h-3.5 text-gray-500 group-hover:text-amber-400 group-hover:translate-x-0.5 transition shrink-0 ml-2" />
                     </div>
                   ))}
                 </div>
@@ -425,14 +378,12 @@ export const FolderWorkbench: React.FC<FolderWorkbenchProps> = ({
           </div>
         )}
 
-        {/* Common Headers Tab */}
+        {/* Common Headers Tab: Clean, no oversized warning banners */}
         {activeTab === 'headers' && (
-          <div className="space-y-4">
-            <div className="bg-surface border border-line p-3.5 rounded-xl text-xs text-gray-300 flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
-              <span>
-                目录公共 Header：当前目录及所有子目录下接口发起请求时，将自动注入勾选的请求头。
-              </span>
+          <div className="space-y-3">
+            <div className="text-xs text-gray-400 flex items-center gap-1.5 px-1">
+              <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              <span>当前目录及子目录下接口发起请求时，将自动注入勾选的公共请求头。</span>
             </div>
             <KeyValueTable
               items={commonHeaders}
@@ -443,14 +394,12 @@ export const FolderWorkbench: React.FC<FolderWorkbenchProps> = ({
           </div>
         )}
 
-        {/* Common Params Tab */}
+        {/* Common Params Tab: Clean, no oversized warning banners */}
         {activeTab === 'params' && (
-          <div className="space-y-4">
-            <div className="bg-surface border border-line p-3.5 rounded-xl text-xs text-gray-300 flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
-              <span>
-                目录公共 Query：当前目录及子目录下接口发起请求时，将自动携带勾选的公共查询参数。
-              </span>
+          <div className="space-y-3">
+            <div className="text-xs text-gray-400 flex items-center gap-1.5 px-1">
+              <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              <span>当前目录及子目录下接口发起请求时，将自动携带勾选的公共查询参数。</span>
             </div>
             <KeyValueTable
               items={commonParams}
