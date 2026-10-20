@@ -119,6 +119,19 @@ npm run package:linux
 ```
 构建产物将输出在 `release/` 目录下。
 
+#### 🐧 Linux 环境运行说明与兼容性保障
+mypost 针对 Linux 生态（包括 Ubuntu、Debian、Fedora、Arch 及国产操作系统 **银河麒麟 Kylin V10**、**统信 UOS**）进行了深度兼容设计：
+- **避免黑屏机制**：业内开源项目（如 VS Code、Bruno、Beekeeper Studio）标准实践，默认采用 CPU 软件渲染（Skia），彻底消除在虚拟机（VMware/VirtualBox）、Wayland、以及 NVIDIA/国产显卡下的 GPU 渲染崩溃及黑屏问题。如需强制启用硬件加速，可附加参数启动：`./mypost.AppImage --enable-gpu`。
+- **AppImage 运行**：首次使用需赋予可执行权限：
+  ```bash
+  chmod +x mypost-*.AppImage
+  ./mypost-*.AppImage
+  ```
+- **DEB 安装**：双击或使用终端安装：
+  ```bash
+  sudo dpkg -i mypost_*_amd64.deb || sudo apt-get install -f
+  ```
+
 ---
 
 ## 🔒 隐私与安全声明

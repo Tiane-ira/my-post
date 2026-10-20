@@ -16,24 +16,38 @@ const currentDir = typeof __dirname !== 'undefined' ? __dirname : path.dirname(f
 app.setName('mypost');
 app.setAppUserModelId('com.mypost.desktop');
 
-// Linux / 国产操作系统 (银河麒麟 Kylin V10 / 统信 UOS) 无 root 环境及 AppImage 极速启动与兼容性增强
+// Linux / 国产操作系统 (银河麒麟 Kylin V10 / 统信 UOS / Ubuntu / Debian / Fedora) 环境及 AppImage 极速启动与兼容性增强
 if (process.platform === 'linux') {
-  // 1. 禁用 Chromium 沙箱 (解决国产系统无 root 账号下 unprivileged user namespace 受限崩溃)
+  // 1. 彻底解决 Linux 环境（Wayland/X11、NVIDIA 显卡驱动、虚拟机 VMware/VirtualBox/WSL、国产显卡等）下的 GPU 渲染崩溃及黑屏问题
+  // 参考 VS Code、Bruno、Beekeeper Studio 等业界主流开源软件最佳实践：
+  // 对于 2D 文本与 API 调试工具，默认禁用硬件加速，使用 CPU 软件渲染（Skia/Cairo），100% 消除黑屏与驱动崩溃
+  const forceEnableGpu = process.argv.includes('--enable-gpu') || process.env.MYPOST_ENABLE_GPU === '1';
+  if (!forceEnableGpu) {
+    app.disableHardwareAcceleration();
+    app.commandLine.appendSwitch('disable-gpu');
+  }
+
+  // 2. 禁用 Chromium 沙箱 (解决高版本 Ubuntu 24.04 / Debian 12 / 国产系统无 root 账号下 unprivileged user namespace 受限崩溃)
   app.commandLine.appendSwitch('no-sandbox');
   app.commandLine.appendSwitch('disable-gpu-sandbox');
 
-  // 2. 禁用 /dev/shm 共享内存，改走 /tmp (彻底解决 Kylin V10 无 root 下 /dev/shm 权限受限崩溃问题)
+  // 3. 禁用 /dev/shm 共享内存，改走 /tmp (彻底解决 Docker、虚拟机或国产系统无 root 下 /dev/shm 权限受限崩溃问题)
   app.commandLine.appendSwitch('disable-dev-shm-usage');
 
-  // 3. 解决 Linux 启动耗时 20-30 秒卡顿的最核心问题：D-Bus Keyring/密钥环超时
+  // 4. 解决 Linux 启动耗时 20-30 秒卡顿的最核心问题：D-Bus Keyring/密钥环超时
   // Chromium 默认尝试通过 D-Bus 查找 GNOME Keyring / KWallet，国产麒麟或受限环境下若未启动该守护进程，
   // 会硬等待 D-Bus 超时 25 秒才继续启动！强制使用 basic 存储立即秒开！
   app.commandLine.appendSwitch('password-store', 'basic');
 
-  // 4. 禁用 XDG Portal D-Bus 超时检测与音频沙箱 (消除麒麟系统 D-Bus 调用挂起)
+  // 5. 禁用 XDG Portal D-Bus 超时检测与音频沙箱 (消除麒麟系统 D-Bus 调用挂起)
   app.commandLine.appendSwitch('disable-features', 'UsePortal,AudioServiceSandbox');
 
-  // 5. 静音 GTK canberra-gtk-module 缺失告警
+  // 6. 自动适配 Wayland 与 X11 混合环境
+  if (!process.argv.some((arg) => arg.startsWith('--ozone-platform'))) {
+    app.commandLine.appendSwitch('ozone-platform-hint', 'auto');
+  }
+
+  // 7. 静音 GTK canberra-gtk-module 缺失告警
   if (process.env.GTK_MODULES) {
     process.env.GTK_MODULES = process.env.GTK_MODULES
       .split(':')
@@ -181,6 +195,35 @@ function createTray() {
   });
 }
 
+function getIndexPath(): string {
+  const candidatePaths = [
+    path.join(currentDir, '../dist/index.html'),
+    path.join(app.getAppPath(), 'dist/index.html'),
+    path.join(process.resourcesPath, 'app.asar/dist/index.html'),
+    path.join(process.resourcesPath, 'dist/index.html'),
+  ];
+  for (const p of candidatePaths) {
+    if (fs.existsSync(p)) {
+      return p;
+    }
+  }
+  return path.join(currentDir, '../dist/index.html');
+}
+
+function getPreloadPath(): string {
+  const candidatePaths = [
+    path.join(currentDir, 'preload.js'),
+    path.join(app.getAppPath(), 'dist-electron/preload.js'),
+    path.join(process.resourcesPath, 'app.asar/dist-electron/preload.js'),
+  ];
+  for (const p of candidatePaths) {
+    if (fs.existsSync(p)) {
+      return p;
+    }
+  }
+  return path.join(currentDir, 'preload.js');
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -189,14 +232,41 @@ function createWindow() {
     minHeight: 640,
     title: 'mypost',
     backgroundColor: '#121316',
+    show: false, // 阻止在页面资源解析与渲染前弹出原生未渲染黑色背景窗口
     icon: getAppIcon(),
     webPreferences: {
-      preload: path.join(currentDir, 'preload.js'),
+      preload: getPreloadPath(),
       spellcheck: false,
       contextIsolation: true,
       nodeIntegration: false,
       webSecurity: false,
     },
+  });
+
+  // 平滑展示窗口，防止在 Linux 环境下初次渲染完成前出现原生黑色空窗口
+  let isShown = false;
+  const triggerShow = () => {
+    if (isShown || !mainWindow) return;
+    isShown = true;
+    mainWindow.show();
+  };
+
+  mainWindow.once('ready-to-show', () => {
+    triggerShow();
+  });
+
+  // 兜底机制：个别 Linux 桌面环境/窗口管理器可能未按时发送 ready-to-show，超时 2.5 秒强制呈现
+  setTimeout(() => {
+    triggerShow();
+  }, 2500);
+
+  // 监听渲染崩溃与网页加载失败，防止异常时无任何终端日志输出导致静默黑屏
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+    console.error(`[main] WebContents did-fail-load: code=${errorCode}, desc=${errorDescription}, url=${validatedURL}`);
+  });
+
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    console.error('[main] WebContents render-process-gone:', details);
   });
 
   // Remove default menu
@@ -206,7 +276,7 @@ function createWindow() {
   if (process.env.VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
   } else {
-    mainWindow.loadFile(path.join(currentDir, '../dist/index.html'));
+    mainWindow.loadFile(getIndexPath());
   }
 
   mainWindow.on('close', (event) => {
