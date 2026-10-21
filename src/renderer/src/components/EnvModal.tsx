@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Plus, Trash2, Globe, Save, Copy, Layers, FileText } from 'lucide-react';
-import { EnvironmentInfo, GlobalParams } from '../../../common/types';
+import { EnvironmentInfo, GlobalParams, KeyValueItem } from '../../../common/types';
 import { KeyValueTable } from './KeyValueTable';
 import { useFeedback } from './FeedbackContext';
 
@@ -23,12 +23,21 @@ const CLEAN_LEGACY_DESCS = new Set([
   '服务器地址',
 ]);
 
-const cleanLegacyItems = (items?: any[]) => {
-  if (!items) return [];
-  return items.map((item) => ({
-    ...item,
-    description: CLEAN_LEGACY_DESCS.has(item.description) ? '' : (item.description || ''),
-  }));
+const cleanLegacyItems = (items?: any[]): KeyValueItem[] => {
+  if (!items || !Array.isArray(items)) return [];
+  return items
+    .filter((item): item is KeyValueItem => Boolean(item && typeof item === 'object'))
+    .map((item, idx) => ({
+      ...item,
+      param_id: item.param_id || `param-${idx}-${Math.random().toString(36).substring(2, 7)}`,
+      key: typeof item.key === 'string' ? item.key : String(item.key || ''),
+      value: typeof item.value === 'string' ? item.value : String(item.value || ''),
+      description: CLEAN_LEGACY_DESCS.has(String(item.description || '')) ? '' : String(item.description || ''),
+      is_checked: item.is_checked !== undefined ? item.is_checked : 1,
+      data_type: item.data_type || 'string',
+      type: item.type || 'text',
+      is_required: item.is_required || 0,
+    }));
 };
 
 export const EnvModal: React.FC<EnvModalProps> = ({
@@ -41,39 +50,119 @@ export const EnvModal: React.FC<EnvModalProps> = ({
   onSaveGlobalParams,
 }) => {
   const { confirm, toast } = useFeedback();
-  const [selectedTab, setSelectedTab] = useState<'globals' | string>(envs[0]?.env_id || 'globals');
-  const [currentEditEnv, setCurrentEditEnv] = useState<EnvironmentInfo | null>(
-    envs[0]
-      ? { ...envs[0], list: cleanLegacyItems(envs[0].list) }
-      : null
-  );
-  const [currentGlobals, setCurrentGlobals] = useState<GlobalParams>({
-    ...globalParams,
-    vars: cleanLegacyItems(globalParams.vars),
+
+  const safeEnvs = React.useMemo(() => {
+    return (Array.isArray(envs) ? envs : []).filter(
+      (e): e is EnvironmentInfo => Boolean(e && typeof e === 'object' && e.env_id)
+    );
+  }, [envs]);
+
+  const safeGlobalParams = React.useMemo<GlobalParams>(() => {
+    if (!globalParams || typeof globalParams !== 'object') {
+      return { header: [], query: [], body: [], vars: [] };
+    }
+    return {
+      header: Array.isArray(globalParams.header) ? globalParams.header : [],
+      query: Array.isArray(globalParams.query) ? globalParams.query : [],
+      body: Array.isArray(globalParams.body) ? globalParams.body : [],
+      vars: Array.isArray(globalParams.vars) ? globalParams.vars : [],
+    };
+  }, [globalParams]);
+
+  const [selectedTab, setSelectedTab] = useState<'globals' | string>(() => {
+    return safeEnvs[0]?.env_id || 'globals';
   });
+  const [currentEditEnv, setCurrentEditEnv] = useState<EnvironmentInfo | null>(() => {
+    return safeEnvs[0]
+      ? {
+          ...safeEnvs[0],
+          name: safeEnvs[0].name || '',
+          pre_url: safeEnvs[0].pre_url || '',
+          list: cleanLegacyItems(safeEnvs[0].list),
+        }
+      : null;
+  });
+  const [currentGlobals, setCurrentGlobals] = useState<GlobalParams>(() => ({
+    ...safeGlobalParams,
+    vars: cleanLegacyItems(safeGlobalParams.vars),
+  }));
   const [showDescription, setShowDescription] = useState(false);
 
   useEffect(() => {
     setCurrentGlobals({
-      ...globalParams,
-      vars: cleanLegacyItems(globalParams.vars),
+      ...safeGlobalParams,
+      vars: cleanLegacyItems(safeGlobalParams.vars),
     });
-  }, [globalParams]);
+  }, [safeGlobalParams]);
 
   useEffect(() => {
     if (selectedTab !== 'globals') {
-      const found = envs.find((e) => e.env_id === selectedTab);
+      const found = safeEnvs.find((e) => e.env_id === selectedTab);
       if (found) {
-        setCurrentEditEnv({ ...found, list: cleanLegacyItems(found.list) });
+        setCurrentEditEnv({
+          ...found,
+          name: found.name || '',
+          pre_url: found.pre_url || '',
+          list: cleanLegacyItems(found.list),
+        });
+      } else if (safeEnvs.length > 0) {
+        setSelectedTab(safeEnvs[0].env_id);
+        setCurrentEditEnv({
+          ...safeEnvs[0],
+          name: safeEnvs[0].name || '',
+          pre_url: safeEnvs[0].pre_url || '',
+          list: cleanLegacyItems(safeEnvs[0].list),
+        });
+      } else {
+        setSelectedTab('globals');
+        setCurrentEditEnv(null);
       }
     }
-  }, [selectedTab, envs]);
+  }, [selectedTab, safeEnvs]);
+
+  // Sync state whenever the modal opens
+  useEffect(() => {
+    if (isOpen) {
+      if (selectedTab !== 'globals') {
+        const found = safeEnvs.find((e) => e.env_id === selectedTab);
+        if (found) {
+          setCurrentEditEnv({
+            ...found,
+            name: found.name || '',
+            pre_url: found.pre_url || '',
+            list: cleanLegacyItems(found.list),
+          });
+        } else if (safeEnvs.length > 0) {
+          setSelectedTab(safeEnvs[0].env_id);
+          setCurrentEditEnv({
+            ...safeEnvs[0],
+            name: safeEnvs[0].name || '',
+            pre_url: safeEnvs[0].pre_url || '',
+            list: cleanLegacyItems(safeEnvs[0].list),
+          });
+        } else {
+          setSelectedTab('globals');
+          setCurrentEditEnv(null);
+        }
+      }
+      setCurrentGlobals({
+        ...safeGlobalParams,
+        vars: cleanLegacyItems(safeGlobalParams.vars),
+      });
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
   const handleSelectEnv = (env: EnvironmentInfo) => {
+    if (!env) return;
     setSelectedTab(env.env_id);
-    setCurrentEditEnv({ ...env, list: cleanLegacyItems(env.list) });
+    setCurrentEditEnv({
+      ...env,
+      name: env.name || '',
+      pre_url: env.pre_url || '',
+      list: cleanLegacyItems(env.list),
+    });
   };
 
   const handleSelectGlobals = () => {
@@ -98,7 +187,9 @@ export const EnvModal: React.FC<EnvModalProps> = ({
     const clonedEnv: EnvironmentInfo = {
       ...currentEditEnv,
       env_id: newId,
-      name: `${currentEditEnv.name} (副本)`,
+      name: `${currentEditEnv.name || '环境'} (副本)`,
+      pre_url: currentEditEnv.pre_url || '',
+      list: Array.isArray(currentEditEnv.list) ? [...currentEditEnv.list] : [],
     };
     setSelectedTab(newId);
     setCurrentEditEnv(clonedEnv);
@@ -113,6 +204,22 @@ export const EnvModal: React.FC<EnvModalProps> = ({
       toast.success('环境配置已保存');
     }
   };
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        e.stopPropagation();
+        handleSave();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
+  }, [isOpen, selectedTab, currentGlobals, currentEditEnv]);
 
   const handleDelete = async () => {
     if (!currentEditEnv) return;
@@ -177,7 +284,7 @@ export const EnvModal: React.FC<EnvModalProps> = ({
               <div className="text-[10px] text-gray-500 font-semibold px-2 py-1 uppercase tracking-wider">
                 独立环境列表
               </div>
-              {envs.map((e) => (
+              {safeEnvs.map((e) => (
                 <button
                   key={e.env_id}
                   type="button"
@@ -188,9 +295,9 @@ export const EnvModal: React.FC<EnvModalProps> = ({
                       : 'text-gray-300 hover:bg-hover'
                   }`}
                 >
-                  <span className="truncate">{e.name}</span>
+                  <span className="truncate">{typeof e.name === 'string' ? e.name : '未命名环境'}</span>
                   <span className="text-[10px] text-gray-500 font-mono shrink-0">
-                    {e.list?.length || 0}
+                    {Array.isArray(e.list) ? e.list.length : 0}
                   </span>
                 </button>
               ))}
@@ -247,7 +354,7 @@ export const EnvModal: React.FC<EnvModalProps> = ({
 
                 <div className="flex-1 overflow-y-auto">
                   <KeyValueTable
-                    items={currentGlobals.vars || []}
+                    items={Array.isArray(currentGlobals.vars) ? currentGlobals.vars : []}
                     onChange={(vars) => setCurrentGlobals({ ...currentGlobals, vars })}
                     keyPlaceholder="变量名"
                     valuePlaceholder="变量值"
@@ -265,8 +372,11 @@ export const EnvModal: React.FC<EnvModalProps> = ({
                     <label className="block text-gray-400 font-medium mb-1 text-xs">环境名称</label>
                     <input
                       type="text"
-                      value={currentEditEnv.name}
+                      value={typeof currentEditEnv.name === 'string' ? currentEditEnv.name : String(currentEditEnv.name || '')}
                       onChange={(e) => setCurrentEditEnv({ ...currentEditEnv, name: e.target.value })}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleSave();
+                      }}
                       className="w-full bg-subtle border border-line rounded-lg px-3 py-1.5 text-gray-200 focus:outline-none focus:border-accent font-medium text-xs"
                       placeholder="环境名称"
                     />
@@ -275,8 +385,11 @@ export const EnvModal: React.FC<EnvModalProps> = ({
                     <label className="block text-gray-400 font-medium mb-1 text-xs">前置 Base URL</label>
                     <input
                       type="text"
-                      value={currentEditEnv.pre_url}
+                      value={typeof currentEditEnv.pre_url === 'string' ? currentEditEnv.pre_url : String(currentEditEnv.pre_url || '')}
                       onChange={(e) => setCurrentEditEnv({ ...currentEditEnv, pre_url: e.target.value })}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleSave();
+                      }}
                       className="w-full bg-subtle border border-line rounded-lg px-3 py-1.5 text-gray-200 font-mono focus:outline-none focus:border-accent text-xs"
                       placeholder="https://api.example.com"
                     />
@@ -298,7 +411,7 @@ export const EnvModal: React.FC<EnvModalProps> = ({
                   </div>
                   <div className="flex-1 overflow-y-auto">
                     <KeyValueTable
-                      items={currentEditEnv.list || []}
+                      items={Array.isArray(currentEditEnv.list) ? currentEditEnv.list : []}
                       onChange={(list) => setCurrentEditEnv({ ...currentEditEnv, list })}
                       keyPlaceholder="变量名"
                       valuePlaceholder="变量值"

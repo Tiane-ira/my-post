@@ -13,7 +13,7 @@ export class TreeUtils {
     visited.add(folderId);
 
     let count = 0;
-    const directChildren = (tree || []).filter((item) => item.parent_id === folderId);
+    const directChildren = (tree || []).filter((item) => item && typeof item === 'object' && item.parent_id === folderId);
 
     for (const child of directChildren) {
       if (child.target_type === 'api' || child.target_type === 'sse' || child.target_type === 'websocket') {
@@ -37,7 +37,7 @@ export class TreeUtils {
     if (!folderId || visited.has(folderId)) return [];
     visited.add(folderId);
 
-    const directChildren = (tree || []).filter((item) => item.parent_id === folderId);
+    const directChildren = (tree || []).filter((item) => item && typeof item === 'object' && item.parent_id === folderId);
     if (!recursive) {
       return directChildren;
     }
@@ -58,15 +58,17 @@ export class TreeUtils {
   public static buildBreadcrumbs(tree: ApiTreeNode[], targetId: string): string[] {
     const crumbs: string[] = [];
     const visited = new Set<string>();
-    let current = (tree || []).find((t) => t.target_id === targetId);
+    let current = (tree || []).find((t) => t && typeof t === 'object' && t.target_id === targetId);
 
     while (current && !visited.has(current.target_id)) {
       visited.add(current.target_id);
-      crumbs.unshift(current.name);
+      if (current.name) {
+        crumbs.unshift(current.name);
+      }
       if (!current.parent_id || current.parent_id === '0') {
         break;
       }
-      current = tree.find((t) => t.target_id === current!.parent_id);
+      current = (tree || []).find((t) => t && typeof t === 'object' && t.target_id === current!.parent_id);
     }
 
     return crumbs;
@@ -76,7 +78,7 @@ export class TreeUtils {
    * Retrieves all folder nodes in tree
    */
   public static getAllFolders(tree: ApiTreeNode[]): ApiTreeNode[] {
-    return (tree || []).filter((item) => item.target_type === 'folder');
+    return (tree || []).filter((item) => item && typeof item === 'object' && item.target_type === 'folder');
   }
 
   /**
@@ -85,11 +87,11 @@ export class TreeUtils {
    * Otherwise returns the folder node itself plus all its descendants.
    */
   public static getFolderHierarchy(tree: ApiTreeNode[], rootFolderId: string = '0'): ApiTreeNode[] {
-    const safeTree = tree || [];
+    const safeTree = (tree || []).filter((item) => Boolean(item && typeof item === 'object'));
     if (!rootFolderId || rootFolderId === '0') {
       return safeTree;
     }
-    const folder = safeTree.find((t) => t.target_id === rootFolderId);
+    const folder = safeTree.find((t) => t && t.target_id === rootFolderId);
     const descendants = this.getFolderChildren(safeTree, rootFolderId, true);
     return folder ? [folder, ...descendants] : descendants;
   }

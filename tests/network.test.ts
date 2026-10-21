@@ -67,6 +67,57 @@ describe('NetworkEngine Request Processor', () => {
       expect(res.data.args?.test).toBe('1');
     });
 
+    it('should request literal URL bar value when no environment is selected (无环境)', async () => {
+      const api: ApiDetail = {
+        target_id: 'test-noenv',
+        parent_id: '0',
+        project_id: 'proj-1',
+        target_type: 'api',
+        name: 'No Env Test',
+        method: 'GET',
+        url: 'https://httpbin.org/get?env=none',
+        sort: 1,
+        status: 1,
+        request: {
+          query: { parameter: [] },
+          header: { parameter: [] },
+          body: { mode: 'none' },
+          auth: { type: 'none' },
+        },
+      };
+
+      // No preUrl passed
+      const res = await NetworkEngine.executeRequest(api);
+      expect(res.statusCode).toBe(200);
+      expect(res.data?.args?.env).toBe('none');
+      expect(res.actualRequest?.url).toBe('https://httpbin.org/get?env=none');
+    });
+
+    it('should concatenate baseUrl with path without leading slash or with trailing slash on baseUrl', async () => {
+      const api: ApiDetail = {
+        target_id: 'test-concat',
+        parent_id: '0',
+        project_id: 'proj-1',
+        target_type: 'api',
+        name: 'Concat Test',
+        method: 'GET',
+        url: 'get?test=concat',
+        sort: 1,
+        status: 1,
+        request: {
+          query: { parameter: [] },
+          header: { parameter: [] },
+          body: { mode: 'none' },
+          auth: { type: 'none' },
+        },
+      };
+
+      const res = await NetworkEngine.executeRequest(api, {}, {}, 'https://httpbin.org/');
+      expect(res.statusCode).toBe(200);
+      expect(res.data?.args?.test).toBe('concat');
+      expect(res.actualRequest?.url).toBe('https://httpbin.org/get?test=concat');
+    });
+
     it('should send headers and query parameters marked is_checked=1', async () => {
       const api: ApiDetail = {
         target_id: 'test-2',

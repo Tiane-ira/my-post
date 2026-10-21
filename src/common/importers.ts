@@ -565,10 +565,15 @@ export class DataImporters {
     };
   }
 
-  public static curlToApiDetail(curlStr: string, baseApi?: Partial<ApiDetail>): ApiDetail {
+  public static curlToApiDetail(
+    curlStr: string,
+    baseApi?: Partial<ApiDetail>,
+    preUrl?: string
+  ): ApiDetail {
     const parsed = this.parseCurl(curlStr);
-    const { queryParams } = UrlUtils.syncUrlToParams(parsed.url);
-    const pathParams = UrlUtils.extractPathParams(parsed.url, []);
+    const targetUrl = preUrl ? UrlUtils.stripBaseUrl(parsed.url, preUrl) : parsed.url;
+    const { queryParams } = UrlUtils.syncUrlToParams(targetUrl);
+    const pathParams = UrlUtils.extractPathParams(targetUrl, []);
 
     // Filter out redundant raw Cookie header if cookies were structured into request.cookie.parameter
     const filteredHeaders =
@@ -590,7 +595,7 @@ export class DataImporters {
           ? base.name
           : parsed.name,
       method: parsed.method,
-      url: parsed.url,
+      url: targetUrl,
       sort: base.sort || 1000,
       status: base.status ?? 1,
       request: {

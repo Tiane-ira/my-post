@@ -8,6 +8,8 @@ import {
   ArrowRight,
   Sparkles,
   Save,
+  Search,
+  X,
 } from 'lucide-react';
 import { ApiTreeNode, HttpMethod, KeyValueItem } from '../../../common/types';
 import { TreeUtils } from '../../../common/treeUtils';
@@ -50,22 +52,48 @@ export const FolderWorkbench: React.FC<FolderWorkbenchProps> = ({
   const [folderName, setFolderName] = useState(folder.name);
   const [activeTab, setActiveTab] = useState<'apis' | 'headers' | 'params' | 'desc'>('apis');
   const [description, setDescription] = useState(folderDetail?.description || '');
-  const [commonHeaders, setCommonHeaders] = useState<KeyValueItem[]>(
-    folderDetail?.request?.header?.parameter || []
-  );
-  const [commonParams, setCommonParams] = useState<KeyValueItem[]>(
-    folderDetail?.request?.query?.parameter || []
-  );
+  const [commonHeaders, setCommonHeaders] = useState<KeyValueItem[]>(() => {
+    const list = folderDetail?.request?.header?.parameter;
+    return Array.isArray(list) ? list : [];
+  });
+  const [commonParams, setCommonParams] = useState<KeyValueItem[]>(() => {
+    const list = folderDetail?.request?.query?.parameter;
+    return Array.isArray(list) ? list : [];
+  });
   const [savedTip, setSavedTip] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  // Sync state when switching folders or receiving loaded details
+  // Track folder target_id to distinguish between switching folders vs editing inside current folder
+  const currentFolderIdRef = React.useRef(folder.target_id);
+  const loadedDetailFolderIdRef = React.useRef<string | null>(null);
+
+  // Sync state when switching to a different folder
   React.useEffect(() => {
-    setFolderName(folder.name);
-    setDescription(folderDetail?.description || '');
-    setCommonHeaders(folderDetail?.request?.header?.parameter || []);
-    setCommonParams(folderDetail?.request?.query?.parameter || []);
-  }, [folder.target_id, folder.name, folderDetail]);
+    if (currentFolderIdRef.current !== folder.target_id) {
+      currentFolderIdRef.current = folder.target_id;
+      loadedDetailFolderIdRef.current = folderDetail ? folder.target_id : null;
+      setFolderName(folder.name);
+      setDescription(folderDetail?.description || '');
+      setCommonHeaders(Array.isArray(folderDetail?.request?.header?.parameter) ? folderDetail.request.header.parameter : []);
+      setCommonParams(Array.isArray(folderDetail?.request?.query?.parameter) ? folderDetail.request.query.parameter : []);
+      setApiSearchQuery('');
+    } else {
+      // If external rename occurred (e.g. from sidebar) and current folder is not dirty
+      if (folder.name !== folderName && !isDirty) {
+        setFolderName(folder.name);
+      }
+    }
+  }, [folder.target_id, folder.name, isDirty]);
+
+  // When folderDetail arrives for the current folder initially
+  React.useEffect(() => {
+    if (folderDetail && loadedDetailFolderIdRef.current !== folder.target_id) {
+      loadedDetailFolderIdRef.current = folder.target_id;
+      setDescription(folderDetail.description || '');
+      setCommonHeaders(Array.isArray(folderDetail.request?.header?.parameter) ? folderDetail.request.header.parameter : []);
+      setCommonParams(Array.isArray(folderDetail.request?.query?.parameter) ? folderDetail.request.query.parameter : []);
+    }
+  }, [folderDetail, folder.target_id]);
 
   const directChildren = TreeUtils.getFolderChildren(treeItems, folder.target_id, false);
   const allDescendants = TreeUtils.getFolderChildren(treeItems, folder.target_id, true);
@@ -73,10 +101,27 @@ export const FolderWorkbench: React.FC<FolderWorkbenchProps> = ({
   const subFolders = directChildren.filter((d) => d.target_type === 'folder');
   const breadcrumbs = TreeUtils.buildBreadcrumbs(treeItems, folder.target_id);
 
+  const [apiSearchQuery, setApiSearchQuery] = useState('');
+
+  const filteredChildApis = React.useMemo(() => {
+    if (!apiSearchQuery.trim()) return childApis;
+    const q = apiSearchQuery.trim().toLowerCase();
+    return childApis.filter(
+      (api) =>
+        Boolean(api) &&
+        ((typeof api.name === 'string' && api.name.toLowerCase().includes(q)) ||
+          (typeof api.url === 'string' && api.url.toLowerCase().includes(q)) ||
+          (typeof api.method === 'string' && api.method.toLowerCase().includes(q)))
+    );
+  }, [childApis, apiSearchQuery]);
+
   const handleNameBlur = () => {
-    if (folderName.trim() && folderName !== folder.name) {
-      onUpdateFolderName(folder.target_id, folderName.trim());
-      toast.success(`目录名称已更新为 "${folderName.trim()}"`);
+    const trimmed = folderName.trim();
+    if (trimmed && trimmed !== folder.name) {
+      onUpdateFolderName(folder.target_id, trimmed);
+      toast.success(`目录名称已更新为 "${trimmed}"`);
+    } else if (!trimmed) {
+      setFolderName(folder.name);
     }
   };
 
@@ -152,17 +197,6 @@ export const FolderWorkbench: React.FC<FolderWorkbenchProps> = ({
     }
   };
 
-  // Keyboard shortcut Ctrl+S
-  React.useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
-        e.preventDefault();
-        handleSaveConfig();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [folder.target_id, folderName, description, commonHeaders, commonParams, onSaveFolder]);
 
   const getMethodBadge = (method: HttpMethod | '', targetType?: string) => {
     if (targetType === 'sse') {
@@ -191,26 +225,35 @@ export const FolderWorkbench: React.FC<FolderWorkbenchProps> = ({
   const displayBreadcrumbs = isRoot ? ['根目录'] : breadcrumbs;
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-canvas overflow-hidden select-none">
+    <div className="flex-1 flex flex-col h-full w-full min-h-0 min-w-0 bg-canvas overflow-hidden select-none">
       {/* Top Bar: Folder Name & Streamlined Actions */}
-      <div className="h-12 px-5 border-b border-line flex items-center justify-between bg-subtle shrink-0">
-        <div className="flex items-center gap-2.5 min-w-0">
+      <div className="h-12 px-4 sm:px-5 border-b border-line flex items-center justify-between bg-subtle shrink-0 gap-3 min-w-0">
+        <div className="flex items-center gap-2.5 min-w-0 flex-1">
           <div className="w-7 h-7 rounded-lg bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
             <Folder className="w-4 h-4" />
           </div>
-          <div className="flex items-center gap-2 min-w-0">
+          <div className="flex items-center gap-2 min-w-0 flex-1">
             <input
               type="text"
               value={folderName}
               disabled={isRoot}
               onChange={(e) => handleNameChange(e.target.value)}
               onBlur={handleNameBlur}
-              className={`bg-transparent border-none text-sm font-bold text-foreground focus:outline-none focus:ring-1 focus:ring-amber-500 px-1.5 py-0.5 rounded ${
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  (e.target as HTMLInputElement).blur();
+                  handleSaveConfig();
+                }
+              }}
+              className={`bg-transparent border-none text-sm font-bold text-foreground focus:outline-none focus:ring-1 focus:ring-amber-500 px-1.5 py-0.5 rounded truncate max-w-[160px] sm:max-w-[240px] md:max-w-md ${
                 isRoot ? 'cursor-default opacity-90' : ''
               }`}
               placeholder="目录名称"
             />
-            <span className="text-[11px] px-2 py-0.5 rounded bg-subtle border border-line text-gray-400 font-mono shrink-0">
+            <span
+              className="text-[11px] px-2 py-0.5 rounded bg-subtle border border-line text-gray-400 font-mono truncate hidden sm:inline-block max-w-[200px] md:max-w-[320px] lg:max-w-[480px]"
+              title={displayBreadcrumbs.join(' / ')}
+            >
               {displayBreadcrumbs.join(' / ')}
             </span>
           </div>
@@ -225,7 +268,7 @@ export const FolderWorkbench: React.FC<FolderWorkbenchProps> = ({
             title="在此目录下新建接口"
           >
             <FilePlus className="w-3.5 h-3.5" />
-            <span>新建接口</span>
+            <span className="hidden xs:inline">新建接口</span>
           </button>
 
           {/* Quick Subfolder */}
@@ -289,8 +332,8 @@ export const FolderWorkbench: React.FC<FolderWorkbenchProps> = ({
       </div>
 
       {/* Tabs */}
-      <div className="h-10 px-5 bg-surface border-b border-line flex items-center justify-between text-xs shrink-0">
-        <div className="flex items-center gap-1">
+      <div className="h-10 px-4 sm:px-5 bg-surface border-b border-line flex items-center justify-between text-xs shrink-0 overflow-x-auto min-w-0">
+        <div className="flex items-center gap-1 min-w-max">
           <button
             onClick={() => setActiveTab('apis')}
             className={`px-3 py-1.5 rounded-md font-semibold transition ${
@@ -337,33 +380,67 @@ export const FolderWorkbench: React.FC<FolderWorkbenchProps> = ({
         </div>
       </div>
 
-      {/* Main Content Area */}
-      <div className="flex-1 p-5 overflow-y-auto max-w-5xl mx-auto w-full">
+      {/* Main Content Area: Fully fluid and responsive */}
+      <div className="flex-1 p-4 md:p-6 overflow-y-auto w-full min-h-0 min-w-0">
         {/* Child APIs Tab: Clean, direct interface list without redundant bulky cards */}
         {activeTab === 'apis' && (
-          <div className="space-y-3">
+          <div className="space-y-3 w-full">
             <div className="border border-line rounded-xl overflow-hidden bg-surface shadow-sm">
-              <div className="px-4 py-2.5 bg-subtle/50 border-b border-line flex items-center justify-between">
-                <span className="text-xs font-bold text-gray-300">
-                  {isRoot ? '项目全部接口' : `"${folder.name}" 目录内接口`} ({childApis.length})
-                </span>
-                <span className="text-[11px] text-gray-500">点击任意接口直接打开调试</span>
+              <div className="px-4 py-2.5 bg-subtle/50 border-b border-line flex flex-wrap items-center justify-between gap-2.5">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-gray-300">
+                    {isRoot ? '项目全部接口' : `"${folder.name}" 目录内接口`}
+                  </span>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                    {childApis.length} 个
+                  </span>
+                  {subFolders.length > 0 && (
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-subtle text-gray-400 border border-line">
+                      {subFolders.length} 个子目录
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-3">
+                  {childApis.length > 3 && (
+                    <div className="relative flex items-center">
+                      <Search className="w-3.5 h-3.5 text-gray-500 absolute left-2.5 pointer-events-none" />
+                      <input
+                        type="text"
+                        value={apiSearchQuery}
+                        onChange={(e) => setApiSearchQuery(e.target.value)}
+                        placeholder="搜索目录内接口名或路径..."
+                        className="pl-8 pr-7 py-1 text-xs bg-sidebar border border-line rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-amber-500 w-44 sm:w-60 transition"
+                      />
+                      {apiSearchQuery && (
+                        <button
+                          onClick={() => setApiSearchQuery('')}
+                          className="absolute right-2 text-gray-500 hover:text-gray-300"
+                          title="清除搜索"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  <span className="text-[11px] text-gray-500 hidden lg:inline-block">点击任意接口直接打开调试</span>
+                </div>
               </div>
 
-              {childApis.length > 0 ? (
+              {filteredChildApis.length > 0 ? (
                 <div className="divide-y divide-line">
-                  {childApis.map((apiItem) => (
+                  {filteredChildApis.map((apiItem) => (
                     <div
                       key={apiItem.target_id}
                       onClick={() => onSelectApi(apiItem.target_id)}
-                      className="px-4 py-2.5 hover:bg-hover cursor-pointer transition flex items-center justify-between group"
+                      className="px-4 py-2.5 hover:bg-hover cursor-pointer transition flex items-center justify-between group gap-3"
                     >
                       <div className="flex items-center gap-3 min-w-0 flex-1">
                         {getMethodBadge(apiItem.method, apiItem.target_type)}
-                        <span className="text-xs font-medium text-gray-200 group-hover:text-amber-400 transition truncate max-w-sm">
+                        <span className="text-xs font-medium text-gray-200 group-hover:text-amber-400 transition truncate shrink-0 max-w-[180px] sm:max-w-[280px] md:max-w-[380px] lg:max-w-[500px]">
                           {apiItem.name}
                         </span>
-                        <code className="text-[11px] font-mono text-gray-500 group-hover:text-gray-400 truncate max-w-md">
+                        <code className="text-[11px] font-mono text-gray-500 group-hover:text-gray-400 truncate flex-1 min-w-0">
                           {apiItem.url || '/'}
                         </code>
                       </div>
@@ -371,6 +448,10 @@ export const FolderWorkbench: React.FC<FolderWorkbenchProps> = ({
                       <ArrowRight className="w-3.5 h-3.5 text-gray-500 group-hover:text-amber-400 group-hover:translate-x-0.5 transition shrink-0 ml-2" />
                     </div>
                   ))}
+                </div>
+              ) : childApis.length > 0 ? (
+                <div className="p-8 text-center text-gray-500 text-xs">
+                  <p>没有匹配 "{apiSearchQuery}" 的接口</p>
                 </div>
               ) : (
                 <div className="p-8 text-center text-gray-500 text-xs">
@@ -383,7 +464,7 @@ export const FolderWorkbench: React.FC<FolderWorkbenchProps> = ({
 
         {/* Common Headers Tab: Clean, no oversized warning banners */}
         {activeTab === 'headers' && (
-          <div className="space-y-3">
+          <div className="space-y-3 w-full">
             <div className="text-xs text-gray-400 flex items-center gap-1.5 px-1">
               <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
               <span>当前目录及子目录下接口发起请求时，将自动注入勾选的公共请求头。</span>
@@ -401,7 +482,7 @@ export const FolderWorkbench: React.FC<FolderWorkbenchProps> = ({
 
         {/* Common Params Tab: Clean, no oversized warning banners */}
         {activeTab === 'params' && (
-          <div className="space-y-3">
+          <div className="space-y-3 w-full">
             <div className="text-xs text-gray-400 flex items-center gap-1.5 px-1">
               <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
               <span>当前目录及子目录下接口发起请求时，将自动携带勾选的公共查询参数。</span>
@@ -419,13 +500,14 @@ export const FolderWorkbench: React.FC<FolderWorkbenchProps> = ({
 
         {/* Folder Description Tab */}
         {activeTab === 'desc' && (
-          <div className="space-y-3">
-            <label className="text-xs font-semibold text-gray-300 block">目录模块说明与业务规范</label>
+          <div className="space-y-3 w-full h-full flex flex-col min-h-0">
+            <label className="text-xs font-semibold text-gray-300 block shrink-0">
+              目录模块说明与业务规范
+            </label>
             <textarea
               value={description}
               onChange={(e) => handleDescChange(e.target.value)}
-              rows={8}
-              className="w-full bg-sidebar border border-line rounded-xl p-4 text-xs text-gray-200 focus:outline-none focus:border-amber-500 font-mono leading-relaxed"
+              className="w-full flex-1 min-h-[320px] bg-sidebar border border-line rounded-xl p-4 text-xs text-gray-200 focus:outline-none focus:border-amber-500 font-mono leading-relaxed resize-y"
               placeholder="编写该模块的业务说明、规范文档或注意事项..."
             />
           </div>

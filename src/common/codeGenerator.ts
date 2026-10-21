@@ -1,4 +1,5 @@
 import { ApiDetail, HttpMethod, KeyValueItem } from './types';
+import { UrlUtils } from './urlUtils';
 
 export type SupportedLanguage =
   | 'curl'
@@ -12,12 +13,7 @@ export type SupportedLanguage =
 export class CodeGenerator {
   public static generate(api: ApiDetail, lang: SupportedLanguage, preUrl?: string): string {
     const method = (api.method || 'GET').toUpperCase() as HttpMethod;
-    let url = api.url || '';
-    if (preUrl && !url.startsWith('http://') && !url.startsWith('https://')) {
-      const cleanPre = preUrl.endsWith('/') ? preUrl.slice(0, -1) : preUrl;
-      const cleanPath = url.startsWith('/') ? url : '/' + url;
-      url = `${cleanPre}${cleanPath}`;
-    }
+    let url = UrlUtils.buildRequestUrl(api.url || '', preUrl);
 
     // Collect checked Query params
     const queryParams = (api.request?.query?.parameter || []).filter((q) => q.is_checked === 1 && q.key);

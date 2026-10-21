@@ -104,3 +104,10 @@
 
 .drag-region { -webkit-app-region: drag; }
 .no-drag { -webkit-app-region: no-drag; }
+
+/* High-performance hardware-accelerated rendering for infinite data streams */
+.stream-item-perf {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 60px;
+}
+

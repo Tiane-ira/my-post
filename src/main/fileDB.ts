@@ -52,8 +52,25 @@ export class FileDB {
     this.ensureDir(path.dirname(filePath));
     const tempFile = `${filePath}.${crypto.randomBytes(4).toString('hex')}.tmp`;
     const str = JSON.stringify(data, null, 2);
-    fs.writeFileSync(tempFile, str, 'utf-8');
-    fs.renameSync(tempFile, filePath);
+    try {
+      fs.writeFileSync(tempFile, str, 'utf-8');
+      try {
+        fs.renameSync(tempFile, filePath);
+      } catch (err: any) {
+        // Fallback for Windows file-locking (EBUSY/EPERM)
+        if (err.code === 'EPERM' || err.code === 'EBUSY') {
+          fs.writeFileSync(filePath, str, 'utf-8');
+          try {
+            if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+          } catch {}
+        } else {
+          throw err;
+        }
+      }
+    } catch {
+      // Direct write fallback
+      fs.writeFileSync(filePath, str, 'utf-8');
+    }
   }
 
   private ensureRegistry(): void {

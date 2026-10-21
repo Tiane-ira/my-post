@@ -18,7 +18,8 @@ import {
   FileCode,
   X,
 } from 'lucide-react';
-import { ApiDetail, HttpMethod, HttpResponseResult, ResponseExample } from '../../../common/types';
+import { ApiDetail, ApiTreeNode, HttpMethod, HttpResponseResult, ResponseExample } from '../../../common/types';
+import { ParamUtils } from '../../../common/paramUtils';
 import { UrlUtils } from '../../../common/urlUtils';
 import { DataImporters } from '../../../common/importers';
 import { KeyValueTable } from './KeyValueTable';
@@ -42,6 +43,8 @@ interface ApiWorkbenchProps {
   preUrl?: string;
   availableVars?: Record<string, VariableItem>;
   onExtractVariable?: (key: string, value: string) => void;
+  treeItems?: ApiTreeNode[];
+  folderDetails?: Record<string, any>;
 }
 
 
@@ -56,6 +59,8 @@ export const ApiWorkbench: React.FC<ApiWorkbenchProps> = ({
   preUrl = '',
   availableVars = {},
   onExtractVariable,
+  treeItems = [],
+  folderDetails = {},
 }) => {
   const { toast } = useFeedback();
   const [activeReqTab, setActiveReqTab] = useState<
@@ -63,16 +68,21 @@ export const ApiWorkbench: React.FC<ApiWorkbenchProps> = ({
   >('body');
   const [loading, setLoading] = useState(false);
   const [response, setResponse] = useState<HttpResponseResult | null>(null);
+  const reqSeqRef = React.useRef(0);
   const [copiedCurl, setCopiedCurl] = useState(false);
   const [isVarMenuOpen, setIsVarMenuOpen] = useState(false);
   const [isVisualModalOpen, setIsVisualModalOpen] = useState(false);
 
   const examples: ResponseExample[] = api.response?.example || [];
 
+  // Compute all implicit / inherited parameters from parent folders, Auth, and system defaults
+  const { headers: inheritedHeaders, query: inheritedQuery } = React.useMemo(() => {
+    return ParamUtils.computeImplicitParams(api, treeItems, folderDetails);
+  }, [api, treeItems, folderDetails]);
+
   // Advanced feature drawer & modes
   const [isDocMode, setIsDocMode] = useState(false);
   const [isCodeDrawerOpen, setIsCodeDrawerOpen] = useState(false);
-  const [sendDropdownOpen, setSendDropdownOpen] = useState(false);
 
   // Vertical split resizer state
   const [reqHeightPercent, setReqHeightPercent] = useState<number>(45);
@@ -105,10 +115,12 @@ export const ApiWorkbench: React.FC<ApiWorkbenchProps> = ({
     };
   }, [isDragging]);
 
-  const handleSendAndSave = async () => {
-    onSave();
-    await handleSend();
-  };
+  // When switching between APIs, ensure previous response is completely cleared and pending sequences invalidated
+  useEffect(() => {
+    reqSeqRef.current++;
+    setResponse(null);
+    setLoading(false);
+  }, [api.target_id]);
 
   // Safe fallback normalization for request
   const req = {
@@ -132,15 +144,12 @@ export const ApiWorkbench: React.FC<ApiWorkbenchProps> = ({
     });
   };
 
-  // Keyboard shortcut Ctrl+Enter to send, Ctrl+S to save
+  // Keyboard shortcut Ctrl+Enter to send request
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
         e.preventDefault();
         handleSend();
-      } else if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-        e.preventDefault();
-        onSave();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -167,7 +176,7 @@ export const ApiWorkbench: React.FC<ApiWorkbenchProps> = ({
   const handleUrlChange = (newUrl: string) => {
     if (DataImporters.isCurl(newUrl)) {
       try {
-        const parsedApi = DataImporters.curlToApiDetail(newUrl, api);
+        const parsedApi = DataImporters.curlToApiDetail(newUrl, api, preUrl);
         onChange(parsedApi);
         return;
       } catch (err: any) {
@@ -194,7 +203,7 @@ export const ApiWorkbench: React.FC<ApiWorkbenchProps> = ({
     if (DataImporters.isCurl(pastedText)) {
       e.preventDefault();
       try {
-        const parsedApi = DataImporters.curlToApiDetail(pastedText, api);
+        const parsedApi = DataImporters.curlToApiDetail(pastedText, api, preUrl);
         onChange(parsedApi);
       } catch (err: any) {
         console.error('Failed to parse pasted curl:', err);
@@ -230,12 +239,35 @@ export const ApiWorkbench: React.FC<ApiWorkbenchProps> = ({
 
   const handleSend = async () => {
     if (loading) return;
+    reqSeqRef.current += 1;
+    const thisReqId = reqSeqRef.current;
+    // Clear previous response immediately so only new request data is shown
+    setResponse(null);
     setLoading(true);
     try {
       const res = await onSend({ ...api, request: req });
-      setResponse(res);
+      if (reqSeqRef.current === thisReqId) {
+        setResponse(res);
+      }
+    } catch (err: any) {
+      if (reqSeqRef.current === thisReqId) {
+        setResponse({
+          statusCode: 0,
+          statusText: 'Error',
+          timeMs: 0,
+          sizeBytes: 0,
+          headers: {},
+          cookies: [],
+          data: null,
+          rawText: '',
+          error: err.message || '请求执行失败',
+          logs: [`[${new Date().toLocaleTimeString()}] [ERROR] ${err.message || '请求执行失败'}`],
+        });
+      }
     } finally {
-      setLoading(false);
+      if (reqSeqRef.current === thisReqId) {
+        setLoading(false);
+      }
     }
   };
 
@@ -274,24 +306,63 @@ export const ApiWorkbench: React.FC<ApiWorkbenchProps> = ({
     }
   };
 
-  const minifyJsonBody = () => {
-    try {
-      const parsed = JSON.parse(req.body?.raw || '{}');
-      const minified = JSON.stringify(parsed);
-      updateReq({
-        body: {
-          ...req.body,
-          raw: minified,
-        },
-      });
-      toast.info('JSON 已压缩');
-    } catch {
-      toast.error('JSON 语法错误，无法压缩');
+  const handleBodyModeChange = (mode: 'none' | 'form-data' | 'urlencoded' | 'binary' | 'msgpack' | 'raw') => {
+    let targetRaw = req.body?.raw;
+    if (mode === 'raw') {
+      const sub = req.body?.raw_type || 'json';
+      if (sub === 'json') {
+        targetRaw = req.body?.raw_json ?? req.body?.raw ?? '{\n  \n}';
+      } else if (sub === 'xml') {
+        targetRaw = req.body?.raw_xml ?? '';
+      } else {
+        targetRaw = req.body?.raw_text ?? '';
+      }
+    } else if (mode === 'msgpack') {
+      targetRaw = req.body?.msgpack_raw ?? (req.body?.mode === 'msgpack' ? req.body?.raw : '') ?? '{\n  \n}';
+    } else if (mode === 'binary') {
+      targetRaw = req.body?.binary_file ?? (req.body?.mode === 'binary' ? req.body?.raw : '') ?? '';
     }
+
+    updateReq({
+      body: {
+        ...req.body,
+        mode: mode as any,
+        raw: targetRaw,
+        raw_type: req.body?.raw_type || 'json',
+      },
+    });
+  };
+
+  const handleRawTypeChange = (newRawType: 'json' | 'xml' | 'text') => {
+    const currentSub = req.body?.raw_type || 'json';
+    const currentRaw = req.body?.raw || '';
+    const updatedSlots: Record<string, string> = {};
+    if (currentSub === 'json') updatedSlots.raw_json = currentRaw;
+    else if (currentSub === 'xml') updatedSlots.raw_xml = currentRaw;
+    else if (currentSub === 'text') updatedSlots.raw_text = currentRaw;
+
+    let nextRaw = '';
+    if (newRawType === 'json') {
+      nextRaw = req.body?.raw_json ?? (currentSub === 'json' ? currentRaw : '{\n  \n}');
+    } else if (newRawType === 'xml') {
+      nextRaw = req.body?.raw_xml ?? (currentSub === 'xml' ? currentRaw : '');
+    } else {
+      nextRaw = req.body?.raw_text ?? (currentSub === 'text' ? currentRaw : '');
+    }
+
+    updateReq({
+      body: {
+        ...req.body,
+        ...updatedSlots,
+        mode: 'raw',
+        raw_type: newRawType,
+        raw: nextRaw,
+      },
+    });
   };
 
   const formatXmlBody = () => {
-    const content = req.body?.raw || '';
+    const content = req.body?.raw_xml ?? req.body?.raw ?? '';
     if (!content.trim()) return;
     try {
       let formatted = '';
@@ -311,10 +382,12 @@ export const ApiWorkbench: React.FC<ApiWorkbenchProps> = ({
           indent += 1;
         }
       });
+      const trimmed = formatted.trim();
       updateReq({
         body: {
           ...req.body,
-          raw: formatted.trim(),
+          raw: trimmed,
+          raw_xml: trimmed,
         },
       });
       toast.info('XML 已格式化');
@@ -326,10 +399,22 @@ export const ApiWorkbench: React.FC<ApiWorkbenchProps> = ({
   const insertVarIntoBody = (varKey: string) => {
     const placeholder = `{{${varKey}}}`;
     const cur = req.body?.raw || '';
+    const updated = cur + (cur ? ' ' : '') + placeholder;
+    const isXml = req.body?.raw_type === 'xml';
+    const isJson = req.body?.raw_type === 'json' || !req.body?.raw_type;
+    const isMsgpack = req.body?.mode === 'msgpack';
+
     updateReq({
       body: {
         ...req.body,
-        raw: cur + (cur ? ' ' : '') + placeholder,
+        raw: updated,
+        ...(isMsgpack
+          ? { msgpack_raw: updated }
+          : isJson
+          ? { raw_json: updated }
+          : isXml
+          ? { raw_xml: updated }
+          : { raw_text: updated }),
       },
     });
     setIsVarMenuOpen(false);
@@ -382,6 +467,12 @@ export const ApiWorkbench: React.FC<ApiWorkbenchProps> = ({
             type="text"
             value={api.name || ''}
             onChange={(e) => onChange({ ...api, name: e.target.value })}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                (e.target as HTMLInputElement).blur();
+                onSave();
+              }
+            }}
             placeholder="接口名称"
             className="bg-transparent border-none text-sm font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-accent px-2 py-0.5 rounded flex-1"
           />
@@ -446,50 +537,31 @@ export const ApiWorkbench: React.FC<ApiWorkbenchProps> = ({
             onChange={handleUrlChange}
             onPaste={handleUrlPaste}
             availableVars={availableVars}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                handleSend();
+              }
+            }}
             placeholder="输入请求路径或粘贴 cURL 命令行直接解析，支持 {{baseUrl}} 变量"
             className="w-full bg-transparent border-none text-xs text-gray-100 placeholder-gray-500 font-mono focus:outline-none"
           />
         </div>
 
-        {/* Send Button Series (Split Button) */}
-        <div className="relative flex items-center shadow-md shadow-orange-500/10 rounded-lg overflow-visible shrink-0">
-          <button
-            onClick={handleSend}
-            disabled={loading}
-            className="h-9 px-4 rounded-l-lg bg-accent hover:bg-accent-hover text-white font-bold text-xs flex items-center gap-2 transition disabled:opacity-50"
-            title="发送请求 (Ctrl+Enter)"
-          >
-            {loading ? (
-              <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-            ) : (
-              <Send className="w-3.5 h-3.5" />
-            )}
-            <span>{loading ? '发送中' : '发送'}</span>
-          </button>
-          <button
-            onClick={() => setSendDropdownOpen(!sendDropdownOpen)}
-            disabled={loading}
-            className="h-9 px-2 rounded-r-lg bg-accent hover:bg-accent-hover border-l border-white/20 text-white transition flex items-center justify-center disabled:opacity-50"
-            title="更多发送选项"
-          >
-            <ChevronDown className="w-3 h-3" />
-          </button>
-
-          {sendDropdownOpen && (
-            <div className="absolute right-0 top-10 z-50 bg-subtle border border-line rounded-lg shadow-2xl py-1 w-36 text-xs animate-in fade-in duration-100">
-              <button
-                onClick={() => {
-                  setSendDropdownOpen(false);
-                  handleSendAndSave();
-                }}
-                className="w-full text-left px-3 py-2 hover:bg-hover text-gray-200 hover:text-foreground flex items-center gap-2"
-              >
-                <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                <span>发送并保存</span>
-              </button>
-            </div>
+        {/* Send Button */}
+        <button
+          onClick={handleSend}
+          disabled={loading}
+          className="h-9 px-4 rounded-lg bg-accent hover:bg-accent-hover text-white font-bold text-xs flex items-center gap-2 transition disabled:opacity-50 shadow-md shadow-accent/10 shrink-0"
+          title="发送请求 (Ctrl+Enter)"
+        >
+          {loading ? (
+            <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+          ) : (
+            <Send className="w-3.5 h-3.5" />
           )}
-        </div>
+          <span>{loading ? '发送中' : '发送'}</span>
+        </button>
 
         {/* Save Button (References Send button style: same h-9, px-4, text-xs font-bold, gap-2, rounded-lg, but no color fill / transparent bg with border) */}
         <button
@@ -657,6 +729,7 @@ export const ApiWorkbench: React.FC<ApiWorkbenchProps> = ({
                   },
                 })
               }
+              inheritedItems={inheritedHeaders}
               availableVars={availableVars}
               allowFile={false}
               showType={false}
@@ -671,6 +744,7 @@ export const ApiWorkbench: React.FC<ApiWorkbenchProps> = ({
             <KeyValueTable
               items={req.query?.parameter || []}
               onChange={handleQueryParamsChange}
+              inheritedItems={inheritedQuery}
               availableVars={availableVars}
               allowFile={false}
               showType={true}
@@ -711,15 +785,7 @@ export const ApiWorkbench: React.FC<ApiWorkbenchProps> = ({
                               type="radio"
                               name="body_mode"
                               checked={isSelected}
-                              onChange={() =>
-                                updateReq({
-                                  body: {
-                                    ...req.body,
-                                    mode: mode as any,
-                                    raw_type: req.body?.raw_type || 'json',
-                                  },
-                                })
-                              }
+                              onChange={() => handleBodyModeChange(mode)}
                               className="accent-accent"
                             />
                             <span
@@ -737,16 +803,7 @@ export const ApiWorkbench: React.FC<ApiWorkbenchProps> = ({
                               <div className="relative shrink-0 flex items-center">
                                 <select
                                   value={req.body?.raw_type || (req.body?.mode === 'json' ? 'json' : 'json')}
-                                  onChange={(e) => {
-                                    const newRawType = e.target.value as 'json' | 'xml' | 'text';
-                                    updateReq({
-                                      body: {
-                                        ...req.body,
-                                        mode: 'raw',
-                                        raw_type: newRawType,
-                                      },
-                                    });
-                                  }}
+                                  onChange={(e) => handleRawTypeChange(e.target.value as 'json' | 'xml' | 'text')}
                                   className="appearance-none bg-subtle hover:bg-hover border border-accent/40 text-accent font-mono text-[11px] font-semibold pl-2 pr-5 py-0.5 rounded cursor-pointer focus:outline-none focus:ring-1 focus:ring-accent transition"
                                   title="选择 Raw 编辑类型 (JSON / XML / Text)"
                                 >
@@ -784,7 +841,7 @@ export const ApiWorkbench: React.FC<ApiWorkbenchProps> = ({
                   )}
                 </div>
 
-                {(req.body?.mode === 'json' || req.body?.mode === 'raw') && (
+                {(req.body?.mode === 'json' || req.body?.mode === 'raw' || req.body?.mode === 'msgpack') && (
                   <div className="flex items-center gap-2">
                     {/* Insert Variable helper */}
                     <div className="relative">
@@ -817,30 +874,8 @@ export const ApiWorkbench: React.FC<ApiWorkbenchProps> = ({
                       )}
                     </div>
 
-                    {(req.body?.raw_type === 'json' ||
-                      (!req.body?.raw_type && req.body?.mode === 'json') ||
-                      (!req.body?.raw_type && req.body?.mode === 'raw')) && (
-                      <>
-                        <button
-                          onClick={formatJsonBody}
-                          className="flex items-center gap-1 px-2 py-0.5 rounded bg-subtle hover:bg-hover text-[11px] text-gray-300 transition"
-                          title="格式化 JSON"
-                        >
-                          <Sparkles className="w-3 h-3 text-accent" />
-                          <span>美化 JSON</span>
-                        </button>
-                        <button
-                          onClick={minifyJsonBody}
-                          className="flex items-center gap-1 px-2 py-0.5 rounded bg-subtle hover:bg-hover text-[11px] text-blue-400 transition"
-                          title="压缩 JSON"
-                        >
-                          <Minimize2 className="w-3 h-3 text-blue-400" />
-                          <span>压缩</span>
-                        </button>
-                      </>
-                    )}
-
-                    {req.body?.raw_type === 'xml' && (
+                    {/* Format XML button only when in XML mode (JSON formatting is handled directly by JsonCodeEditor) */}
+                    {req.body?.mode === 'raw' && req.body?.raw_type === 'xml' && (
                       <button
                         onClick={formatXmlBody}
                         className="flex items-center gap-1 px-2 py-0.5 rounded bg-subtle hover:bg-hover text-[11px] text-gray-300 transition"
@@ -868,7 +903,7 @@ export const ApiWorkbench: React.FC<ApiWorkbenchProps> = ({
                     (!req.body?.raw_type && req.body?.mode === 'raw')) ? (
                     <div className="flex-1 min-h-0">
                       <JsonCodeEditor
-                        value={req.body.raw || ''}
+                        value={req.body?.raw_json ?? req.body?.raw ?? ''}
                         onChange={(newVal) =>
                           updateReq({
                             body: {
@@ -876,6 +911,7 @@ export const ApiWorkbench: React.FC<ApiWorkbenchProps> = ({
                               mode: 'raw',
                               raw_type: 'json',
                               raw: newVal,
+                              raw_json: newVal,
                             },
                           })
                         }
@@ -884,19 +920,24 @@ export const ApiWorkbench: React.FC<ApiWorkbenchProps> = ({
                     </div>
                   ) : (
                     <textarea
-                      value={req.body.raw || ''}
-                      onChange={(e) =>
+                      value={
+                        req.body?.raw_type === 'xml'
+                          ? (req.body?.raw_xml ?? req.body?.raw ?? '')
+                          : (req.body?.raw_text ?? req.body?.raw ?? '')
+                      }
+                      onChange={(e) => {
+                        const newVal = e.target.value;
+                        const isXml = req.body?.raw_type === 'xml';
                         updateReq({
                           body: {
                             ...req.body,
                             mode: 'raw',
-                            raw_type:
-                              req.body?.raw_type ||
-                              (req.body?.mode === 'json' ? 'json' : 'json'),
-                            raw: e.target.value,
+                            raw_type: isXml ? 'xml' : 'text',
+                            raw: newVal,
+                            ...(isXml ? { raw_xml: newVal } : { raw_text: newVal }),
                           },
-                        })
-                      }
+                        });
+                      }}
                       placeholder={
                         req.body?.raw_type === 'xml'
                           ? '<?xml version="1.0" encoding="UTF-8"?>\n<root>\n  <key>value</key>\n</root>'
@@ -957,12 +998,12 @@ export const ApiWorkbench: React.FC<ApiWorkbenchProps> = ({
                   <div className="text-gray-300 font-medium text-xs">
                     选择要作为 Binary 载荷发送的本地二进制文件
                   </div>
-                  {req.body.raw ? (
+                  {(req.body.binary_file || (req.body.mode === 'binary' ? req.body.raw : '')) ? (
                     <div className="flex items-center gap-2 p-2 rounded bg-subtle border border-line text-xs font-mono">
-                      <span className="text-gray-200">{req.body.raw}</span>
+                      <span className="text-gray-200">{req.body.binary_file || req.body.raw}</span>
                       <button
                         type="button"
-                        onClick={() => updateReq({ body: { ...req.body, raw: '' } })}
+                        onClick={() => updateReq({ body: { ...req.body, binary_file: '', raw: '' } })}
                         className="text-gray-400 hover:text-rose-400"
                         title="清除文件"
                       >
@@ -976,7 +1017,13 @@ export const ApiWorkbench: React.FC<ApiWorkbenchProps> = ({
                         if (window.mypostAPI?.openFileDialog) {
                           const res = await window.mypostAPI.openFileDialog();
                           if (res && res.filePath) {
-                            updateReq({ body: { ...req.body, raw: res.filePath } });
+                            updateReq({
+                              body: {
+                                ...req.body,
+                                binary_file: res.filePath,
+                                raw: res.filePath,
+                              },
+                            });
                           }
                         }
                       }}
@@ -989,8 +1036,30 @@ export const ApiWorkbench: React.FC<ApiWorkbenchProps> = ({
               )}
 
               {req.body?.mode === 'msgpack' && (
-                <div className="flex-1 flex items-center justify-center text-gray-500 text-xs">
-                  MsgPack 二进制编码载荷模式
+                <div className="flex-1 min-h-0 flex flex-col space-y-2">
+                  <div className="text-[11px] text-gray-400 flex items-center justify-between px-1 shrink-0">
+                    <span className="flex items-center gap-1.5">
+                      <Sparkles className="w-3 h-3 text-amber-400" />
+                      <span>编写 JSON 结构，发送请求时自动进行 MessagePack 二进制序列化</span>
+                    </span>
+                    <span className="font-mono text-gray-500 text-[10px]">Content-Type: application/msgpack</span>
+                  </div>
+                  <div className="flex-1 min-h-0">
+                    <JsonCodeEditor
+                      value={req.body?.msgpack_raw ?? (req.body?.mode === 'msgpack' ? req.body?.raw : '') ?? '{\n  \n}'}
+                      onChange={(newVal) =>
+                        updateReq({
+                          body: {
+                            ...req.body,
+                            mode: 'msgpack',
+                            msgpack_raw: newVal,
+                            raw: newVal,
+                          },
+                        })
+                      }
+                      placeholder={'{\n  "key": "value"\n}'}
+                    />
+                  </div>
                 </div>
               )}
             </div>
@@ -1252,8 +1321,6 @@ export const ApiWorkbench: React.FC<ApiWorkbenchProps> = ({
         <ResponseViewer
           response={response}
           loading={loading}
-          onExtractVariable={onExtractVariable}
-          examples={examples}
           activeApi={api}
         />
       </div>

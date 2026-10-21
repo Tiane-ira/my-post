@@ -97,4 +97,76 @@ describe('UrlUtils Bi-directional Synchronizer', () => {
       'https://api.com/users/books/{bookId}?sort=desc'
     );
   });
+
+  describe('buildRequestUrl & Environment BaseUrl Concatenation', () => {
+    it('when no environment is selected, request url is the URL bar value', () => {
+      // Full HTTP / HTTPS URLs
+      expect(UrlUtils.buildRequestUrl('https://httpbin.org/get')).toBe('https://httpbin.org/get');
+      expect(UrlUtils.buildRequestUrl('http://localhost:3000/api/users')).toBe('http://localhost:3000/api/users');
+      // Relative URL or host without protocol
+      expect(UrlUtils.buildRequestUrl('localhost:3000/api/users')).toBe('http://localhost:3000/api/users');
+      expect(UrlUtils.buildRequestUrl('/api/users')).toBe('/api/users');
+      expect(UrlUtils.buildRequestUrl('')).toBe('');
+      // Explicit empty preUrl
+      expect(UrlUtils.buildRequestUrl('https://httpbin.org/get', '')).toBe('https://httpbin.org/get');
+      expect(UrlUtils.buildRequestUrl('http://localhost:3000/api', '   ')).toBe('http://localhost:3000/api');
+    });
+
+    it('when an environment is selected, request url is baseUrl concatenated with URL bar value', () => {
+      // Normal relative path with leading slash
+      expect(UrlUtils.buildRequestUrl('/users', 'https://api.example.com')).toBe('https://api.example.com/users');
+      // Relative path without leading slash
+      expect(UrlUtils.buildRequestUrl('users', 'https://api.example.com')).toBe('https://api.example.com/users');
+      // baseUrl with trailing slash
+      expect(UrlUtils.buildRequestUrl('/users', 'https://api.example.com/')).toBe('https://api.example.com/users');
+      expect(UrlUtils.buildRequestUrl('users', 'https://api.example.com/')).toBe('https://api.example.com/users');
+      // Query string only in URL bar
+      expect(UrlUtils.buildRequestUrl('?foo=bar', 'https://api.example.com/v1')).toBe('https://api.example.com/v1?foo=bar');
+      // Empty URL bar returns baseUrl
+      expect(UrlUtils.buildRequestUrl('', 'https://api.example.com')).toBe('https://api.example.com');
+      // BaseUrl missing protocol gets auto-prefixed with http://
+      expect(UrlUtils.buildRequestUrl('/api', '127.0.0.1:8000')).toBe('http://127.0.0.1:8000/api');
+      // When URL bar already starts with baseUrl, avoid double prefixing
+      expect(UrlUtils.buildRequestUrl('https://api.example.com/users', 'https://api.example.com')).toBe(
+        'https://api.example.com/users'
+      );
+      // When URL bar has an external absolute URL (e.g. from pasted cURL), keep it
+      expect(UrlUtils.buildRequestUrl('https://httpbin.org/get', 'http://localhost:8080')).toBe(
+        'https://httpbin.org/get'
+      );
+    });
+  });
+
+  describe('stripBaseUrl helper for cURL paste parsing', () => {
+    it('should strip matching baseUrl from URL leaving relative path', () => {
+      expect(UrlUtils.stripBaseUrl('https://api.example.com/users?page=1', 'https://api.example.com')).toBe(
+        '/users?page=1'
+      );
+      expect(UrlUtils.stripBaseUrl('https://api.example.com/users', 'https://api.example.com/')).toBe('/users');
+      expect(UrlUtils.stripBaseUrl('http://localhost:8080/v1/orders', 'http://localhost:8080/v1')).toBe('/orders');
+    });
+
+    it('should preserve URL when baseUrl does not match or is empty', () => {
+      expect(UrlUtils.stripBaseUrl('https://httpbin.org/get', 'http://localhost:8080')).toBe(
+        'https://httpbin.org/get'
+      );
+      expect(UrlUtils.stripBaseUrl('https://api.example.com/users', '')).toBe('https://api.example.com/users');
+    });
+  });
+
+  describe('buildWsRequestUrl', () => {
+    it('should concatenate WebSocket baseUrl with URL bar path', () => {
+      expect(UrlUtils.buildWsRequestUrl('/ws/chat', 'http://localhost:8080')).toBe('ws://localhost:8080/ws/chat');
+      expect(UrlUtils.buildWsRequestUrl('chat', 'https://api.example.com')).toBe('wss://api.example.com/chat');
+      expect(UrlUtils.buildWsRequestUrl('ws://localhost:8080/ws/chat', 'http://localhost:8080')).toBe(
+        'ws://localhost:8080/ws/chat'
+      );
+    });
+
+    it('should handle WebSocket URL without environment', () => {
+      expect(UrlUtils.buildWsRequestUrl('ws://localhost:8080/ws')).toBe('ws://localhost:8080/ws');
+      expect(UrlUtils.buildWsRequestUrl('localhost:8080/ws')).toBe('ws://localhost:8080/ws');
+    });
+  });
 });
+

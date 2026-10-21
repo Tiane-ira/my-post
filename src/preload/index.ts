@@ -26,6 +26,7 @@ export const apiBridge = {
   getCloseToTray: (): Promise<boolean> => ipcRenderer.invoke('app:getCloseToTray'),
   setCloseToTray: (enabled: boolean): Promise<boolean> =>
     ipcRenderer.invoke('app:setCloseToTray', enabled),
+  writeDebugLog: (text: string): Promise<void> => ipcRenderer.invoke('app:writeDebugLog', text),
 
   // Project and FileDB
   listProjects: (): Promise<ProjectInfo[]> => ipcRenderer.invoke('db:listProjects'),

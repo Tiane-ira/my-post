@@ -193,17 +193,17 @@ export const TitleBar: React.FC<TitleBarProps> = ({
                     <span>环境变量 ({currentEnv?.list?.length || 0})</span>
                     <span className="text-[9px] text-gray-500">点击复制 &#123;&#123;key&#125;&#125;</span>
                   </div>
-                  {currentEnv?.list && currentEnv.list.length > 0 ? (
+                  {Array.isArray(currentEnv?.list) && currentEnv.list.filter(Boolean).length > 0 ? (
                     <div className="space-y-1">
-                      {currentEnv.list.map((v) => (
+                      {currentEnv.list.filter(Boolean).map((v, idx) => (
                         <div
-                          key={v.param_id}
-                          onClick={() => handleCopyVar(v.key)}
+                          key={v.param_id || v.key || `env-var-${idx}`}
+                          onClick={() => v.key && handleCopyVar(String(v.key))}
                           className="flex items-center justify-between px-2 py-1 rounded bg-surface hover:bg-hover cursor-pointer transition border border-line"
                         >
-                          <span className="font-mono text-amber-300 truncate max-w-[100px]">{v.key}</span>
+                          <span className="font-mono text-amber-300 truncate max-w-[100px]">{typeof v.key === 'string' ? v.key : String(v.key || '-')}</span>
                           <span className="font-mono text-gray-400 truncate max-w-[120px] text-[11px]">
-                            {v.value || '(空)'}
+                            {typeof v.value === 'string' ? v.value : String(v.value || '(空)')}
                           </span>
                           {copiedVarKey === v.key ? (
                             <Check className="w-3 h-3 text-emerald-400 shrink-0" />
@@ -221,19 +221,19 @@ export const TitleBar: React.FC<TitleBarProps> = ({
                 {/* Global Vars */}
                 <div>
                   <div className="text-[10px] text-gray-400 font-semibold mb-1 flex items-center justify-between">
-                    <span>全局变量 ({globalParams?.vars?.length || 0})</span>
+                    <span>全局变量 ({Array.isArray(globalParams?.vars) ? globalParams.vars.filter(Boolean).length : 0})</span>
                   </div>
-                  {globalParams?.vars && globalParams.vars.length > 0 ? (
+                  {Array.isArray(globalParams?.vars) && globalParams.vars.filter(Boolean).length > 0 ? (
                     <div className="space-y-1">
-                      {globalParams.vars.map((v) => (
+                      {globalParams.vars.filter(Boolean).map((v, idx) => (
                         <div
-                          key={v.param_id}
-                          onClick={() => handleCopyVar(v.key)}
+                          key={v.param_id || v.key || `global-var-${idx}`}
+                          onClick={() => v.key && handleCopyVar(String(v.key))}
                           className="flex items-center justify-between px-2 py-1 rounded bg-surface hover:bg-hover cursor-pointer transition border border-line"
                         >
-                          <span className="font-mono text-blue-300 truncate max-w-[100px]">{v.key}</span>
+                          <span className="font-mono text-blue-300 truncate max-w-[100px]">{typeof v.key === 'string' ? v.key : String(v.key || '-')}</span>
                           <span className="font-mono text-gray-400 truncate max-w-[120px] text-[11px]">
-                            {v.value || '(空)'}
+                            {typeof v.value === 'string' ? v.value : String(v.value || '(空)')}
                           </span>
                           {copiedVarKey === v.key ? (
                             <Check className="w-3 h-3 text-emerald-400 shrink-0" />

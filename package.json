@@ -1,6 +1,6 @@
 {
   "name": "mypost",
-  "version": "2026.10.20",
+  "version": "2026.10.22",
   "description": "mypost - 专为个人打造的纯本地 API 调试与管理工具",
   "license": "MIT",
   "engines": {
@@ -211,5 +211,8 @@
     "vite-plugin-electron-renderer": "^1.0.0",
     "vitest": "^5.0.4",
     "yaml": "^2.9.1"
+  },
+  "dependencies": {
+    "@msgpack/msgpack": "^3.1.3"
   }
 }

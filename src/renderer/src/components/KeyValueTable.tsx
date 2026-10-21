@@ -10,13 +10,16 @@ import {
   FileCode,
   X,
   ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
 import { KeyValueItem, ParamDataType } from '../../../common/types';
+import { InheritedParamItem } from '../../../common/paramUtils';
 import { VariableInput, VariableItem } from './VariableInput';
 
 interface KeyValueTableProps {
   items: KeyValueItem[];
   onChange: (items: KeyValueItem[]) => void;
+  inheritedItems?: InheritedParamItem[];
   keyPlaceholder?: string;
   valuePlaceholder?: string;
   availableVars?: Record<string, VariableItem>;
@@ -31,6 +34,7 @@ interface KeyValueTableProps {
 export const KeyValueTable: React.FC<KeyValueTableProps> = ({
   items,
   onChange,
+  inheritedItems,
   keyPlaceholder = '参数名',
   valuePlaceholder = '参数值',
   availableVars = {},
@@ -48,6 +52,7 @@ export const KeyValueTable: React.FC<KeyValueTableProps> = ({
   const actualShowType = showType !== undefined ? showType : !isHeaderTable;
 
   const isFormMode = Boolean(isFormData || allowFile);
+  const [showInherited, setShowInherited] = React.useState<boolean>(false);
 
   const formDataOptions = [
     { value: 'text', label: 'Text' },
@@ -63,8 +68,31 @@ export const KeyValueTable: React.FC<KeyValueTableProps> = ({
     { value: 'object', label: 'object' },
   ];
 
+  const safeItems = React.useMemo(() => {
+    return (Array.isArray(items) ? items : [])
+      .filter((i): i is KeyValueItem => Boolean(i && typeof i === 'object'))
+      .map((item, idx) => ({
+        ...item,
+        param_id: item.param_id || `param-${idx}`,
+        key: typeof item.key === 'string' ? item.key : String(item.key || ''),
+        value: typeof item.value === 'string' ? item.value : String(item.value || ''),
+        description: typeof item.description === 'string' ? item.description : String(item.description || ''),
+        is_checked: item.is_checked !== undefined ? item.is_checked : 1,
+        data_type: item.data_type || (item.type === 'file' ? 'file' : 'string'),
+        type: item.type || (item.data_type === 'file' ? 'file' : 'text'),
+        is_required: item.is_required || 0,
+      }));
+  }, [items]);
+
+  const safeInherited = React.useMemo(() => {
+    return (Array.isArray(inheritedItems) ? inheritedItems : []).filter(
+      (inh): inh is InheritedParamItem => Boolean(inh && typeof inh === 'object' && inh.key)
+    );
+  }, [inheritedItems]);
+
   const handleToggle = (index: number) => {
-    const next = [...items];
+    const next = [...safeItems];
+    if (!next[index]) return;
     next[index] = {
       ...next[index],
       is_checked: next[index].is_checked === 1 ? -1 : 1,
@@ -73,13 +101,15 @@ export const KeyValueTable: React.FC<KeyValueTableProps> = ({
   };
 
   const handleFieldChange = (index: number, field: keyof KeyValueItem, val: any) => {
-    const next = [...items];
+    const next = [...safeItems];
+    if (!next[index]) return;
     next[index] = { ...next[index], [field]: val };
     onChange(next);
   };
 
   const handleTypeChange = (index: number, newType: string) => {
-    const next = [...items];
+    const next = [...safeItems];
+    if (!next[index]) return;
     const isFile = newType === 'file';
     next[index] = {
       ...next[index],
@@ -92,7 +122,8 @@ export const KeyValueTable: React.FC<KeyValueTableProps> = ({
   };
 
   const handleClearFile = (index: number) => {
-    const next = [...items];
+    const next = [...safeItems];
+    if (!next[index]) return;
     next[index] = {
       ...next[index],
       file_path: '',
@@ -103,13 +134,13 @@ export const KeyValueTable: React.FC<KeyValueTableProps> = ({
   };
 
   const handleDelete = (index: number) => {
-    const next = items.filter((_, i) => i !== index);
+    const next = safeItems.filter((_, i) => i !== index);
     onChange(next);
   };
 
   const handleAdd = () => {
     const next: KeyValueItem[] = [
-      ...items,
+      ...safeItems,
       {
         param_id: Math.random().toString(36).substring(2, 9),
         key: '',
@@ -129,7 +160,8 @@ export const KeyValueTable: React.FC<KeyValueTableProps> = ({
       if (window.mypostAPI?.openFileDialog) {
         const res = await window.mypostAPI.openFileDialog();
         if (res && res.filePath) {
-          const next = [...items];
+          const next = [...safeItems];
+          if (!next[index]) return;
           next[index] = {
             ...next[index],
             type: 'file',
@@ -153,7 +185,8 @@ export const KeyValueTable: React.FC<KeyValueTableProps> = ({
       const file = (e.target as HTMLInputElement).files?.[0];
       if (file) {
         const filePath = (file as any).path || file.name;
-        const next = [...items];
+        const next = [...safeItems];
+        if (!next[index]) return;
         next[index] = {
           ...next[index],
           type: 'file',
@@ -169,11 +202,11 @@ export const KeyValueTable: React.FC<KeyValueTableProps> = ({
   };
 
   const handleCheckAll = () => {
-    onChange(items.map((i) => ({ ...i, is_checked: 1 })));
+    onChange(safeItems.map((i) => ({ ...i, is_checked: 1 })));
   };
 
   const handleUncheckAll = () => {
-    onChange(items.map((i) => ({ ...i, is_checked: -1 })));
+    onChange(safeItems.map((i) => ({ ...i, is_checked: -1 })));
   };
 
   const handleClearAll = () => {
@@ -185,11 +218,11 @@ export const KeyValueTable: React.FC<KeyValueTableProps> = ({
       {/* Top Toolbar: Quick Actions */}
       <div className="flex items-center justify-between text-gray-400">
         <div className="text-[11px] font-medium text-gray-400">
-          参数列表 ({items.length})
+          参数列表 ({safeItems.length})
         </div>
 
         <div className="flex items-center gap-1.5 text-[11px]">
-          {items.length > 0 && (
+          {safeItems.length > 0 && (
             <>
               <button
                 type="button"
@@ -249,9 +282,92 @@ export const KeyValueTable: React.FC<KeyValueTableProps> = ({
           <div className="text-center">操作</div>
         </div>
 
+        {/* Inherited & Implicit Parameters Section (Folded by default) */}
+        {safeInherited.length > 0 && (
+          <div className="bg-subtle/30 border-b border-line">
+            <button
+              type="button"
+              onClick={() => setShowInherited(!showInherited)}
+              className="w-full px-3 py-1.5 flex items-center justify-between text-[11px] text-text-muted font-medium bg-canvas/30 hover:bg-hover/50 transition cursor-pointer select-none text-left"
+            >
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {showInherited ? (
+                  <ChevronDown className="w-3.5 h-3.5 text-accent" />
+                ) : (
+                  <ChevronRight className="w-3.5 h-3.5 text-gray-500" />
+                )}
+                <span className="text-gray-300 font-semibold">继承与系统隐式参数</span>
+                <span className="text-[10px] px-1.5 py-0.2 rounded bg-surface border border-line text-gray-400 font-mono">
+                  {safeInherited.length} 项
+                </span>
+                <span className="text-[10px] text-gray-500 font-normal">
+                  (上级目录、Auth 鉴权、系统默认参数)
+                </span>
+              </div>
+              <span className="text-[10px] text-accent font-sans hover:underline">
+                {showInherited ? '收起' : '展开查看'}
+              </span>
+            </button>
+
+            {showInherited && (
+              <div className="divide-y divide-line/60 border-t border-line/40">
+                {safeInherited.map((inh, iIdx) => (
+                  <div
+                    key={`inh-${inh.source}-${inh.key}-${iIdx}`}
+                    className={`grid ${
+                      showContentType
+                        ? showDescription
+                          ? 'grid-cols-[36px_1.5fr_1.5fr_1fr_1fr_36px]'
+                          : 'grid-cols-[36px_1.8fr_2fr_1.2fr_36px]'
+                        : showDescription
+                        ? 'grid-cols-[36px_1.5fr_1.7fr_1.2fr_36px]'
+                        : 'grid-cols-[36px_1.5fr_2fr_36px]'
+                    } items-center px-2 py-1 gap-2 text-xs transition ${
+                      inh.overridden ? 'opacity-40 line-through' : 'bg-surface/30'
+                    }`}
+                  >
+                    <div className="flex items-center justify-center">
+                      <span
+                        className={`text-[9px] font-bold px-1 py-0.5 rounded border select-none ${
+                          inh.source === 'folder'
+                            ? 'bg-amber-500/10 text-amber-500 border-amber-500/30'
+                            : inh.source === 'auth'
+                            ? 'bg-purple-500/10 text-purple-400 border-purple-500/30'
+                            : 'bg-sky-500/10 text-sky-400 border-sky-500/30'
+                        }`}
+                        title={inh.sourceName}
+                      >
+                        {inh.source === 'folder' ? '目录' : inh.source === 'auth' ? '鉴权' : '系统'}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1 min-w-0 font-mono text-xs text-text-main font-semibold">
+                      <span className="truncate">{inh.key}</span>
+                      {inh.overridden && (
+                        <span className="text-[10px] text-rose-400 font-sans font-normal shrink-0 no-underline">
+                          (已覆盖)
+                        </span>
+                      )}
+                    </div>
+                    <div className="font-mono text-xs text-text-muted truncate select-text" title={inh.value}>
+                      {inh.value || '<空>'}
+                    </div>
+                    {showContentType && <div className="text-[11px] text-text-muted">-</div>}
+                    {showDescription && (
+                      <div className="text-[11px] text-text-muted truncate" title={inh.description || inh.sourceName}>
+                        {inh.description || inh.sourceName}
+                      </div>
+                    )}
+                    <div className="text-center text-[10px] text-text-muted select-none">只读</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Rows */}
         <div className="divide-y divide-line">
-          {items.map((item, index) => {
+          {safeItems.map((item, index) => {
             const currentType: ParamDataType =
               item.data_type || (item.type === 'file' ? 'file' : 'string');
             const isFileType = currentType === 'file' || item.type === 'file';
@@ -445,7 +561,7 @@ export const KeyValueTable: React.FC<KeyValueTableProps> = ({
             );
           })}
 
-          {items.length === 0 && (
+          {safeItems.length === 0 && (
             <div className="py-6 text-center text-gray-500 text-xs">
               暂无参数，点击下方添加一行参数
             </div>

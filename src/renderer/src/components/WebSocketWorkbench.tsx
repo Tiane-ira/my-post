@@ -26,12 +26,18 @@ import {
   Radio,
   PanelRightClose,
   PanelRightOpen,
+  Code2,
+  ListTree,
+  X,
 } from 'lucide-react';
-import { ApiDetail, KeyValueItem, WebSocketConfig } from '../../../common/types';
+import { ApiDetail, ApiTreeNode, KeyValueItem, WebSocketConfig } from '../../../common/types';
+import { ParamUtils } from '../../../common/paramUtils';
+import { UrlUtils } from '../../../common/urlUtils';
 import { VariableItem, VariableInput } from './VariableInput';
 import { KeyValueTable } from './KeyValueTable';
 import { Tooltip } from './Tooltip';
 import { useFeedback } from './FeedbackContext';
+import { JsonCodeEditor } from './JsonCodeEditor';
 
 export interface WsMessageItem {
   id: string;
@@ -45,6 +51,31 @@ export interface WsMessageItem {
   systemType?: 'connect' | 'disconnect' | 'error' | 'info';
 }
 
+/**
+ * Text highlighter for search query matches
+ */
+const renderHighlightedText = (text: string, query: string): React.ReactNode => {
+  if (!query || !query.trim() || !text) return text;
+  const q = query.trim();
+  const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  try {
+    const regex = new RegExp(`(${escaped})`, 'gi');
+    const parts = text.split(regex);
+    if (parts.length === 1) return text;
+    return parts.map((part, i) =>
+      part.toLowerCase() === q.toLowerCase() ? (
+        <mark key={i} className="bg-amber-400/35 text-amber-200 px-0.5 rounded font-medium">
+          {part}
+        </mark>
+      ) : (
+        part
+      )
+    );
+  } catch {
+    return text;
+  }
+};
+
 interface WebSocketWorkbenchProps {
   api: ApiDetail;
   availableVars?: Record<string, VariableItem>;
@@ -56,6 +87,8 @@ interface WebSocketWorkbenchProps {
   preUrl?: string;
   envVars?: Record<string, string>;
   globalVars?: Record<string, string>;
+  treeItems?: ApiTreeNode[];
+  folderDetails?: Record<string, any>;
 }
 
 export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
@@ -69,13 +102,19 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
   preUrl = '',
   envVars = {},
   globalVars = {},
+  treeItems = [],
+  folderDetails = {},
 }) => {
   const { toast } = useFeedback();
+
+  // Compute all implicit / inherited parameters from parent folders, Auth, and system defaults
+  const { headers: inheritedHeaders, query: inheritedQuery } = React.useMemo(() => {
+    return ParamUtils.computeImplicitParams(api, treeItems, folderDetails, { isWs: true });
+  }, [api, treeItems, folderDetails]);
 
   // Connection State
   const [status, setStatus] = useState<'disconnected' | 'connecting' | 'connected' | 'error'>('disconnected');
   const [messages, setMessages] = useState<WsMessageItem[]>([]);
-  const [bufferLimit, setBufferLimit] = useState<number>(500); // Max retained messages (FIFO eviction to prevent memory explosion)
   const [cumulativeStats, setCumulativeStats] = useState({ sent: 0, recv: 0, total: 0 });
   const [connectedTime, setConnectedTime] = useState<number | null>(null);
   const [elapsedDuration, setElapsedDuration] = useState('00:00');
@@ -92,6 +131,7 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
     api.websocket?.messageDraft ?? '{\n  "action": "ping"\n}'
   );
   const [messageMode, setMessageMode] = useState<'json' | 'text'>(api.websocket?.messageMode ?? 'json');
+  const [expandedJsonIds, setExpandedJsonIds] = useState<Record<string, boolean>>({});
 
   // Synchronize state when switching APIs
   useEffect(() => {
@@ -191,6 +231,9 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
   // UI & Filters
   const [activeTab, setActiveTab] = useState<'params' | 'headers' | 'protocols' | 'heartbeat'>('params');
   const [filterText, setFilterText] = useState('');
+  const [filterOnly, setFilterOnly] = useState(false);
+  const [activeMatchIndex, setActiveMatchIndex] = useState(0);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [directionFilter, setDirectionFilter] = useState<'all' | 'send' | 'receive' | 'system'>('all');
   const [autoScroll, setAutoScroll] = useState(true);
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -248,12 +291,6 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
   const incomingQueueRef = useRef<WsMessageItem[]>([]);
   const rafIdRef = useRef<number | null>(null);
 
-  // Trim messages when bufferLimit changes
-  useEffect(() => {
-    if (bufferLimit > 0) {
-      setMessages((prev) => (prev.length > bufferLimit ? prev.slice(prev.length - bufferLimit) : prev));
-    }
-  }, [bufferLimit]);
 
   // Clean up RAF on unmount
   useEffect(() => {
@@ -309,8 +346,19 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
     };
   }, [status, heartbeatEnabled, heartbeatInterval, heartbeatMsg]);
 
-  // Clean up on unmount or api change
+  // Clean up on unmount or api change: disconnect and clear messages to avoid data crosstalk
   useEffect(() => {
+    if (wsRef.current) {
+      wsRef.current.close(1000, 'API switched');
+      wsRef.current = null;
+    }
+    if (timerRef.current) clearInterval(timerRef.current);
+    if (heartbeatTimerRef.current) clearInterval(heartbeatTimerRef.current);
+    setMessages([]);
+    incomingQueueRef.current = [];
+    setStatus('disconnected');
+    setCumulativeStats({ sent: 0, recv: 0, total: 0 });
+
     return () => {
       if (wsRef.current) {
         wsRef.current.close(1000, 'Component unmounted');
@@ -346,22 +394,10 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
     }
     finalUrl = finalUrl.replace(/\{\{([^{}]+)\}\}/g, (_, key) => allVars[key.trim()] || `{{${key}}}`);
 
-    if (finalUrl.startsWith('ws://') || finalUrl.startsWith('wss://')) {
-      return finalUrl;
-    }
-    if (finalUrl.startsWith('http://')) {
-      return 'ws://' + finalUrl.slice(7);
-    }
-    if (finalUrl.startsWith('https://')) {
-      return 'wss://' + finalUrl.slice(8);
-    }
-    if (wsPreUrl) {
-      return `${wsPreUrl}/${finalUrl.replace(/^\/+/, '')}`;
-    }
-    return 'ws://' + finalUrl.replace(/^\/+/, '');
+    return UrlUtils.buildWsRequestUrl(finalUrl, wsPreUrl);
   };
 
-  // Flush queued incoming messages into React state in a bounded batch
+  // Flush queued incoming messages into React state in a high-efficiency RAF batch without frame limit
   const flushIncomingQueue = () => {
     if (rafIdRef.current) {
       cancelAnimationFrame(rafIdRef.current);
@@ -372,13 +408,7 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
     const batch = incomingQueueRef.current;
     incomingQueueRef.current = [];
 
-    setMessages((prev) => {
-      const merged = [...prev, ...batch];
-      if (bufferLimit > 0 && merged.length > bufferLimit) {
-        return merged.slice(merged.length - bufferLimit);
-      }
-      return merged;
-    });
+    setMessages((prev) => [...prev, ...batch]);
   };
 
   const appendMessage = (
@@ -423,13 +453,7 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
     if (direction === 'send') {
       // Immediate flush for user-initiated sends
       flushIncomingQueue();
-      setMessages((prev) => {
-        const merged = [...prev, msg];
-        if (bufferLimit > 0 && merged.length > bufferLimit) {
-          return merged.slice(merged.length - bufferLimit);
-        }
-        return merged;
-      });
+      setMessages((prev) => [...prev, msg]);
     } else {
       // High-throughput incoming & system notices: batched via RAF
       incomingQueueRef.current.push(msg);
@@ -438,6 +462,18 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
       }
     }
   };
+
+  // Keyboard shortcut Ctrl+Enter to connect/disconnect
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault();
+        handleConnect();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [status, api]);
 
   const handleConnect = () => {
     if (status === 'connected' || status === 'connecting') {
@@ -456,8 +492,25 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
       return;
     }
 
+    // Reset previous connection state cleanly so only current session data is displayed
+    setMessages([]);
+    incomingQueueRef.current = [];
+    msgSeqRef.current = 0;
+    setCumulativeStats({ sent: 0, recv: 0, total: 0 });
+    setFilterText('');
+    setActiveMatchIndex(0);
+    setDirectionFilter('all');
+
     try {
       const urlObj = new URL(resolved);
+
+      // Append inherited query params first (if not overridden)
+      for (const inh of inheritedQuery) {
+        if (!inh.overridden && inh.key) {
+          urlObj.searchParams.append(inh.key, inh.value || '');
+        }
+      }
+
       const queryParams = api.request?.query?.parameter || [];
       for (const p of queryParams) {
         if (p.is_checked === 1 && p.key) {
@@ -591,7 +644,6 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
   const recvCount = useMemo(() => messages.filter((m) => m.direction === 'receive').length, [messages]);
   const totalDataCount = sentCount + recvCount;
   const systemCount = useMemo(() => messages.filter((m) => m.direction === 'system').length, [messages]);
-  const isTrimmed = cumulativeStats.total > totalDataCount;
 
   // Chronological frame numbering map fallback (starts at #1)
   const dataMessageIndexMap = useMemo(() => {
@@ -606,16 +658,62 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
     return map;
   }, [messages]);
 
-  // Filtered Messages
-  const filteredMessages = useMemo(() => {
+  // Search matching predicate covering all message content (data payload, seq, timestamp, type, direction)
+  const messageMatchesQuery = (m: WsMessageItem, query: string): boolean => {
+    if (!query) return false;
+    const q = query.toLowerCase();
+    if (m.data && m.data.toLowerCase().includes(q)) return true;
+    if (m.timeStr && m.timeStr.toLowerCase().includes(q)) return true;
+    if (m.seq !== undefined && String(m.seq).includes(q)) return true;
+    if (m.systemType && m.systemType.toLowerCase().includes(q)) return true;
+    if (m.direction && m.direction.toLowerCase().includes(q)) return true;
+    return false;
+  };
+
+  // Visible messages depending on direction filter and filterOnly mode
+  const visibleMessages = useMemo(() => {
+    const trimmed = filterText.trim();
     return messages.filter((m) => {
       if (directionFilter !== 'all' && m.direction !== directionFilter) {
         return false;
       }
-      if (!filterText.trim()) return true;
-      return m.data.toLowerCase().includes(filterText.toLowerCase());
+      if (filterOnly && trimmed) {
+        return messageMatchesQuery(m, trimmed);
+      }
+      return true;
     });
-  }, [messages, directionFilter, filterText]);
+  }, [messages, directionFilter, filterOnly, filterText]);
+
+  // Matching message IDs within currently visible messages
+  const matchedMessageIds = useMemo(() => {
+    const trimmed = filterText.trim();
+    if (!trimmed) return [];
+    return visibleMessages.filter((m) => messageMatchesQuery(m, trimmed)).map((m) => m.id);
+  }, [visibleMessages, filterText]);
+
+  const currentMatchId = matchedMessageIds[activeMatchIndex] || null;
+
+  // Scroll to targeted message element
+  const scrollToMsg = (msgId: string) => {
+    const el = document.getElementById(`ws-msg-${msgId}`);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  };
+
+  const handleNextMatch = () => {
+    if (matchedMessageIds.length === 0) return;
+    const nextIdx = (activeMatchIndex + 1) % matchedMessageIds.length;
+    setActiveMatchIndex(nextIdx);
+    scrollToMsg(matchedMessageIds[nextIdx]);
+  };
+
+  const handlePrevMatch = () => {
+    if (matchedMessageIds.length === 0) return;
+    const prevIdx = (activeMatchIndex - 1 + matchedMessageIds.length) % matchedMessageIds.length;
+    setActiveMatchIndex(prevIdx);
+    scrollToMsg(matchedMessageIds[prevIdx]);
+  };
 
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden bg-canvas select-none">
@@ -626,141 +724,111 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
             type="text"
             value={api.name || ''}
             onChange={(e) => onChange({ ...api, name: e.target.value })}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                (e.target as HTMLInputElement).blur();
+                handleSave();
+              }
+            }}
             placeholder="WebSocket 接口名称"
-            className="bg-transparent border-none text-sm font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-teal-500 px-2 py-0.5 rounded flex-1"
+            className="bg-transparent border-none text-sm font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-accent px-2 py-0.5 rounded flex-1"
           />
         </div>
       </div>
 
-      {/* Top Header Bar */}
-      <div className="h-12 border-b border-line bg-subtle/50 px-4 flex items-center justify-between gap-3 shrink-0">
-        <div className="flex items-center gap-2 flex-1 min-w-0">
-          {/* Protocol Badge */}
-          <div className="h-8 px-3 rounded bg-teal-500/10 border border-teal-500/20 text-teal-400 text-xs font-bold flex items-center gap-1 shrink-0">
-            <Radio className="w-3.5 h-3.5" />
-            <span>WS</span>
-          </div>
-
-          {/* URL Input */}
-          <div className="flex-1 min-w-0 flex items-center bg-subtle border border-line rounded px-2.5 focus-within:border-teal-500 transition shadow-inner">
-            <Zap className="w-3.5 h-3.5 text-teal-400 mr-2 shrink-0" />
-            {wsPreUrl && (
-              <span className="text-gray-500 text-xs font-mono select-none mr-1.5 shrink-0">
-                {wsPreUrl}
-              </span>
-            )}
-            <VariableInput
-              value={api.url || ''}
-              onChange={(newUrl) => onChange({ ...api, url: newUrl })}
-              availableVars={availableVars}
-              placeholder="/ws 或 wss://echo.websocket.events"
-              className="w-full h-8 bg-transparent text-xs text-foreground placeholder-gray-500 font-mono focus:outline-none"
-            />
-          </div>
-
-          {/* Connect / Disconnect Button */}
-          <button
-            type="button"
-            onClick={handleConnect}
-            className={`h-8 px-4 rounded font-medium text-xs flex items-center gap-1.5 transition shadow-sm shrink-0 ${
-              status === 'connected' || status === 'connecting'
-                ? 'bg-rose-500 hover:bg-rose-600 text-white'
-                : 'bg-teal-500 hover:bg-teal-600 text-white'
-            }`}
-          >
-            {status === 'connecting' ? (
-              <>
-                <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                <span>连接中...</span>
-              </>
-            ) : status === 'connected' ? (
-              <>
-                <Unplug className="w-3.5 h-3.5" />
-                <span>断开连接</span>
-              </>
-            ) : (
-              <>
-                <Plug className="w-3.5 h-3.5" />
-                <span>连接</span>
-              </>
-            )}
-          </button>
-
-          {/* Save Button (Icon + Tooltip) */}
-          <Tooltip content="保存">
-            <button
-              type="button"
-              onClick={handleSave}
-              className="h-8 px-2.5 rounded bg-subtle hover:bg-hover border border-line text-xs text-gray-200 hover:text-white flex items-center gap-1.5 transition shrink-0"
-            >
-              <Save className="w-3.5 h-3.5 text-teal-400" />
-              <span className="hidden sm:inline">保存</span>
-            </button>
-          </Tooltip>
-
-          {/* Share Button (Icon + Tooltip) */}
-          {onOpenShare && (
-            <Tooltip content="分享">
-              <button
-                type="button"
-                onClick={onOpenShare}
-                className="h-8 px-2 rounded bg-subtle hover:bg-hover border border-line text-xs text-gray-300 hover:text-teal-400 flex items-center justify-center transition shrink-0"
-              >
-                <Share2 className="w-3.5 h-3.5" />
-              </button>
-            </Tooltip>
-          )}
-
-          {/* Toggle Response Message Stream (Icon + Tooltip) */}
-          <Tooltip content={showTimeline ? "隐藏消息流" : "展示消息流"}>
-            <button
-              type="button"
-              onClick={() => setShowTimeline(!showTimeline)}
-              className={`h-8 px-2.5 rounded border text-xs flex items-center justify-center transition shrink-0 ${
-                showTimeline
-                  ? 'bg-subtle hover:bg-hover border-line text-gray-300 hover:text-teal-400'
-                  : 'bg-teal-500/15 border-teal-500/30 text-teal-400 hover:bg-teal-500/25'
-              }`}
-            >
-              {showTimeline ? (
-                <PanelRightClose className="w-3.5 h-3.5" />
-              ) : (
-                <PanelRightOpen className="w-3.5 h-3.5" />
-              )}
-            </button>
-          </Tooltip>
+      {/* URL & Connect Bar (Layout & styling identical to HTTP ApiWorkbench) */}
+      <div className="p-3 bg-surface border-b border-line flex items-center gap-2 shrink-0">
+        {/* Protocol Badge */}
+        <div className="h-9 w-[86px] rounded-lg font-bold font-mono text-xs border flex items-center justify-center gap-1 shrink-0 select-none bg-teal-500/10 border-teal-500/30 text-teal-400">
+          <Radio className="w-3.5 h-3.5" />
+          <span>WS</span>
         </div>
 
-        {/* Status indicator & stats */}
-        <div className="flex items-center gap-3 text-xs shrink-0">
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-subtle border border-line">
-            <span
-              className={`w-2 h-2 rounded-full ${
-                status === 'connected'
-                  ? 'bg-emerald-400 animate-pulse'
-                  : status === 'connecting'
-                  ? 'bg-amber-400 animate-ping'
-                  : status === 'error'
-                  ? 'bg-rose-500'
-                  : 'bg-gray-500'
-              }`}
-            />
-            <span className="text-[11px] font-medium text-gray-300">
-              {status === 'connected'
-                ? `已连接 (${elapsedDuration})`
-                : status === 'connecting'
-                ? '连接中'
-                : status === 'error'
-                ? '连接失败'
-                : '未连接'}
+        {/* URL Input with preUrl, VariableInput and Enter shortcut */}
+        <div className="flex-1 flex items-center bg-surface border border-line focus-within:border-accent rounded-lg px-3 h-9 transition">
+          {wsPreUrl && (
+            <span className="text-gray-500 text-xs font-mono select-none mr-1.5 shrink-0">
+              {wsPreUrl}
             </span>
-          </div>
-
-          <div className="text-[11px] text-gray-400 font-mono flex items-center gap-2">
-            <span className="text-emerald-400">↑ {sentCount}</span>
-            <span className="text-sky-400">↓ {recvCount}</span>
-          </div>
+          )}
+          <VariableInput
+            value={api.url || ''}
+            onChange={(newUrl) => onChange({ ...api, url: newUrl })}
+            availableVars={availableVars}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                handleConnect();
+              }
+            }}
+            placeholder="/ws 或 wss://echo.websocket.events"
+            className="w-full bg-transparent border-none text-xs text-gray-100 placeholder-gray-500 font-mono focus:outline-none"
+          />
         </div>
+
+        {/* Connect / Disconnect Button */}
+        <button
+          type="button"
+          onClick={handleConnect}
+          className={`h-9 px-4 rounded-lg font-bold text-xs flex items-center gap-2 transition shrink-0 select-none ${
+            status === 'connected'
+              ? 'bg-rose-500 hover:bg-rose-600 text-white'
+              : status === 'connecting'
+              ? 'bg-accent hover:bg-accent-hover text-white'
+              : 'bg-accent hover:bg-accent-hover text-white shadow-md shadow-orange-500/10'
+          }`}
+          title="连接 WebSocket (Ctrl+Enter)"
+        >
+          {status === 'connecting' ? (
+            <>
+              <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              <span>连接中...</span>
+            </>
+          ) : status === 'connected' ? (
+            <>
+              <Unplug className="w-3.5 h-3.5" />
+              <span>断开连接</span>
+            </>
+          ) : (
+            <>
+              <Plug className="w-3.5 h-3.5" />
+              <span>连接</span>
+            </>
+          )}
+        </button>
+
+        {/* Save Button */}
+        <button
+          type="button"
+          onClick={handleSave}
+          className={`h-9 px-4 rounded-lg border bg-transparent hover:bg-hover font-bold text-xs flex items-center gap-2 transition shrink-0 select-none ${
+            isDirty
+              ? 'border-accent text-accent hover:bg-accent/10 shadow-sm'
+              : 'border-line hover:border-gray-400/60 text-foreground'
+          }`}
+          title="保存接口修改 (Ctrl+S)"
+          aria-label="保存修改"
+        >
+          <Save className="w-3.5 h-3.5" />
+          <span>保存</span>
+          {isDirty && (
+            <span
+              className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse ml-0.5"
+              title="有未保存修改"
+            />
+          )}
+        </button>
+
+
+        {/* Toggle Response Message Stream */}
+        <button
+          type="button"
+          onClick={() => setShowTimeline(!showTimeline)}
+          className="h-9 px-3 rounded-lg border border-line bg-transparent hover:bg-hover text-gray-300 hover:text-foreground text-xs flex items-center gap-1.5 transition shrink-0"
+          title={showTimeline ? "隐藏消息流" : "展示消息流"}
+        >
+          {showTimeline ? <PanelRightClose className="w-3.5 h-3.5" /> : <PanelRightOpen className="w-3.5 h-3.5" />}
+        </button>
       </div>
 
       {/* Main Split Body: Left Handshake Config & Message Composer, Right Live Feed */}
@@ -841,6 +909,7 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
                       },
                     })
                   }
+                  inheritedItems={inheritedQuery}
                   keyPlaceholder="参数名 (Key)"
                   valuePlaceholder="参数值 (Value)"
                   availableVars={availableVars}
@@ -859,6 +928,7 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
                       },
                     })
                   }
+                  inheritedItems={inheritedHeaders}
                   keyPlaceholder="请求头 (Header)"
                   valuePlaceholder="值 (Value)"
                   availableVars={availableVars}
@@ -968,34 +1038,38 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
                   </select>
                   <ChevronDown className="w-3 h-3 text-gray-400 absolute right-1.5 pointer-events-none" />
                 </div>
-
-                {/* Format JSON Button */}
-                {messageMode === 'json' && (
-                  <Tooltip content="美化格式">
-                    <button
-                      type="button"
-                      onClick={handleFormatJson}
-                      className="p-1 hover:bg-hover rounded text-amber-400 hover:text-amber-300 transition"
-                    >
-                      <Sparkles className="w-3.5 h-3.5" />
-                    </button>
-                  </Tooltip>
-                )}
               </div>
             </div>
 
-            <textarea
-              value={inputMessage}
-              onChange={(e) => handleInputMessageChange(e.target.value)}
-              onKeyDown={(e) => {
-                if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-                  e.preventDefault();
-                  handleSendMessage();
-                }
-              }}
-              placeholder="输入要发送的 WebSocket 文本或 JSON 内容... (支持 Ctrl+Enter 快捷发送)"
-              className="flex-1 w-full bg-subtle border border-line rounded-lg p-2.5 text-xs font-mono text-foreground placeholder-gray-500 focus:outline-none focus:border-teal-500 resize-none leading-relaxed shadow-inner"
-            />
+            {messageMode === 'json' ? (
+              <div className="flex-1 min-h-[140px] border border-line rounded-lg overflow-hidden flex flex-col">
+                <JsonCodeEditor
+                  value={inputMessage}
+                  onChange={handleInputMessageChange}
+                  placeholder={'{\n  "action": "ping"\n}'}
+                  onKeyDown={(e) => {
+                    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                      e.preventDefault();
+                      handleSendMessage();
+                    }
+                  }}
+                  className="h-full border-none rounded-none"
+                />
+              </div>
+            ) : (
+              <textarea
+                value={inputMessage}
+                onChange={(e) => handleInputMessageChange(e.target.value)}
+                onKeyDown={(e) => {
+                  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                    e.preventDefault();
+                    handleSendMessage();
+                  }
+                }}
+                placeholder="输入要发送的 WebSocket 文本或 JSON 内容... (支持 Ctrl+Enter 快捷发送)"
+                className="flex-1 w-full bg-subtle border border-line rounded-lg p-2.5 text-xs font-mono text-foreground placeholder-gray-500 focus:outline-none focus:border-teal-500 resize-none leading-relaxed shadow-inner"
+              />
+            )}
 
             <div className="flex items-center justify-between mt-2.5">
               <span className="text-[11px] text-gray-500 font-mono">
@@ -1019,68 +1093,139 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
         {showTimeline && (
           <div className="flex-1 flex flex-col min-h-0 bg-canvas overflow-hidden min-w-[280px]">
             {/* Stream Toolbar */}
-            <div className="h-10 border-b border-line px-3 flex items-center justify-between gap-2 bg-subtle/30 shrink-0">
+            <div className="h-10 border-b border-line px-3 flex items-center justify-between gap-2.5 bg-subtle/30 shrink-0">
               <div className="flex items-center gap-2 flex-1 min-w-0">
-                <div className="relative w-40 sm:w-48">
-                  <Search className="w-3.5 h-3.5 text-gray-500 absolute left-2 top-2.5" />
+                {/* Search Box with match navigation & clear */}
+                <div className="relative flex items-center w-52 sm:w-64 shrink-0">
+                  <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 pointer-events-none" />
                   <input
+                    ref={searchInputRef}
                     type="text"
                     value={filterText}
-                    onChange={(e) => setFilterText(e.target.value)}
-                    placeholder="搜索消息内容..."
-                    className="w-full bg-subtle border border-line rounded pl-7 pr-2 py-1 text-xs text-foreground placeholder-gray-500 focus:outline-none focus:border-teal-500"
+                    onChange={(e) => {
+                      setFilterText(e.target.value);
+                      setActiveMatchIndex(0);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        if (e.shiftKey) {
+                          handlePrevMatch();
+                        } else {
+                          handleNextMatch();
+                        }
+                      } else if (e.key === 'Escape') {
+                        setFilterText('');
+                        setActiveMatchIndex(0);
+                      }
+                    }}
+                    placeholder="搜索消息、时间、序号..."
+                    className="w-full bg-subtle border border-line focus:border-teal-500 rounded-lg pl-8 pr-16 py-1 text-xs text-foreground placeholder-gray-500 focus:outline-none transition shadow-inner font-sans"
                   />
+
+                  {/* Match counter & navigation controls inside search box */}
+                  {filterText.trim() && (
+                    <div className="absolute right-1.5 flex items-center gap-0.5">
+                      <span className="text-[10px] font-mono text-gray-400 px-1 select-none">
+                        {matchedMessageIds.length > 0 ? `${activeMatchIndex + 1}/${matchedMessageIds.length}` : '0/0'}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handlePrevMatch}
+                        disabled={matchedMessageIds.length === 0}
+                        className="p-0.5 hover:bg-hover rounded text-gray-400 hover:text-white disabled:opacity-30 transition"
+                        title="上一个匹配 (Shift+Enter)"
+                      >
+                        <ChevronUp className="w-3 h-3" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleNextMatch}
+                        disabled={matchedMessageIds.length === 0}
+                        className="p-0.5 hover:bg-hover rounded text-gray-400 hover:text-white disabled:opacity-30 transition"
+                        title="下一个匹配 (Enter)"
+                      >
+                        <ChevronDown className="w-3 h-3" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFilterText('');
+                          setActiveMatchIndex(0);
+                        }}
+                        className="p-0.5 hover:bg-hover rounded text-gray-400 hover:text-white transition"
+                        title="清空搜索"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  )}
                 </div>
 
-                {/* Direction Filter Dropdown */}
-                <div className="relative shrink-0 flex items-center">
-                  <select
-                    value={directionFilter}
-                    onChange={(e) => setDirectionFilter(e.target.value as any)}
-                    className="appearance-none bg-subtle hover:bg-hover border border-line text-foreground text-xs pl-2.5 pr-6 py-1 rounded cursor-pointer focus:outline-none focus:border-teal-500 transition shadow-sm"
-                    title="筛选消息方向"
+                {/* Filter Only Toggle */}
+                <button
+                  type="button"
+                  onClick={() => setFilterOnly(!filterOnly)}
+                  className={`h-7 px-2 rounded-md border text-xs flex items-center gap-1 transition shrink-0 select-none ${
+                    filterOnly
+                      ? 'bg-teal-500/20 border-teal-500/40 text-teal-300 font-medium'
+                      : 'bg-subtle hover:bg-hover border-line text-gray-400 hover:text-gray-200'
+                  }`}
+                  title={filterOnly ? "当前为仅展示匹配项模式，点击切换回全量展示" : "点击仅展示匹配项"}
+                >
+                  <Filter className="w-3 h-3" />
+                  <span>仅匹配</span>
+                </button>
+
+                {/* Compact Direction Segmented Buttons */}
+                <div className="flex items-center bg-subtle border border-line rounded-md p-0.5 shrink-0 text-xs select-none">
+                  <button
+                    type="button"
+                    onClick={() => setDirectionFilter('all')}
+                    className={`px-2 py-0.5 rounded text-[11px] font-medium transition ${
+                      directionFilter === 'all'
+                        ? 'bg-surface text-foreground shadow-sm'
+                        : 'text-gray-400 hover:text-gray-200'
+                    }`}
                   >
-                    <option value="all" className="bg-surface text-foreground">
-                      全部消息 ({isTrimmed ? `${totalDataCount} / 累计 ${cumulativeStats.total}` : totalDataCount})
-                    </option>
-                    <option value="send" className="bg-surface text-foreground">
-                      仅发送 ({isTrimmed ? `${sentCount} / 累计 ${cumulativeStats.sent}` : sentCount})
-                    </option>
-                    <option value="receive" className="bg-surface text-foreground">
-                      仅接收 ({isTrimmed ? `${recvCount} / 累计 ${cumulativeStats.recv}` : recvCount})
-                    </option>
-                    {systemCount > 0 && (
-                      <option value="system" className="bg-surface text-foreground">系统日志 ({systemCount})</option>
-                    )}
-                  </select>
-                  <ChevronDown className="w-3 h-3 text-gray-400 absolute right-1.5 pointer-events-none" />
-                </div>
-
-                {/* Buffer Capacity Limit Dropdown */}
-                <div className="relative shrink-0 flex items-center">
-                  <select
-                    value={bufferLimit}
-                    onChange={(e) => setBufferLimit(Number(e.target.value))}
-                    className="appearance-none bg-subtle hover:bg-hover border border-line text-foreground text-xs pl-2.5 pr-6 py-1 rounded cursor-pointer focus:outline-none focus:border-teal-500 transition shadow-sm font-mono"
-                    title="消息缓冲区上限 (自动修剪最早的历史消息，防止长期连接导致页面卡顿)"
+                    全部 ({totalDataCount})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDirectionFilter('send')}
+                    className={`px-2 py-0.5 rounded text-[11px] font-medium transition ${
+                      directionFilter === 'send'
+                        ? 'bg-emerald-500/20 text-emerald-300 font-semibold shadow-sm'
+                        : 'text-gray-400 hover:text-gray-200'
+                    }`}
                   >
-                    <option value={200} className="bg-surface text-foreground">上限: 200 条</option>
-                    <option value={500} className="bg-surface text-foreground">上限: 500 条 (推荐)</option>
-                    <option value={1000} className="bg-surface text-foreground">上限: 1000 条</option>
-                    <option value={2000} className="bg-surface text-foreground">上限: 2000 条</option>
-                    <option value={0} className="bg-surface text-foreground">无限制 (可能卡顿)</option>
-                  </select>
-                  <ChevronDown className="w-3 h-3 text-gray-400 absolute right-1.5 pointer-events-none" />
+                    发送 ({sentCount})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDirectionFilter('receive')}
+                    className={`px-2 py-0.5 rounded text-[11px] font-medium transition ${
+                      directionFilter === 'receive'
+                        ? 'bg-sky-500/20 text-sky-300 font-semibold shadow-sm'
+                        : 'text-gray-400 hover:text-gray-200'
+                    }`}
+                  >
+                    接收 ({recvCount})
+                  </button>
+                  {systemCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setDirectionFilter('system')}
+                      className={`px-2 py-0.5 rounded text-[11px] font-medium transition ${
+                        directionFilter === 'system'
+                          ? 'bg-surface text-gray-200 shadow-sm'
+                          : 'text-gray-500 hover:text-gray-300'
+                      }`}
+                    >
+                      系统 ({systemCount})
+                    </button>
+                  )}
                 </div>
-
-                {/* Trimmed Badge */}
-                {isTrimmed && (
-                  <Tooltip content={`已累计传输 ${cumulativeStats.total} 条消息。为保障页面流畅，仅保留最新 ${totalDataCount} 条。`}>
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-teal-500/10 text-teal-400 border border-teal-500/20 font-mono hidden xl:inline-flex items-center gap-1 cursor-help shrink-0">
-                      <span>已修剪 {cumulativeStats.total - totalDataCount} 条</span>
-                    </span>
-                  </Tooltip>
-                )}
               </div>
 
               {/* Action Buttons with Icon + Tooltips */}
@@ -1125,28 +1270,40 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
 
             {/* Timeline Message Feed */}
             <div ref={scrollContainerRef} className="flex-1 overflow-y-auto p-3 space-y-2.5">
-              {filteredMessages.length === 0 ? (
+              {visibleMessages.length === 0 ? (
                 <div className="h-full flex flex-col items-center justify-center text-gray-500 gap-2 py-12">
                   <Zap className="w-10 h-10 text-gray-600 stroke-1" />
                   <div className="text-xs font-medium text-gray-400">
-                    {status === 'connected'
+                    {filterText.trim() && filterOnly
+                      ? '没有找到匹配搜索条件的消息'
+                      : status === 'connected'
                       ? '已建立 WebSocket 连接，可以在左侧编写并发送消息'
                       : '暂无消息记录，请在顶部输入 ws:// 或 wss:// 地址并点击“连接”'}
                   </div>
                   <div className="text-[11px] text-gray-600">
-                    支持实时全双工通信、心跳保活、JSON/Text 消息高亮解析与协议过滤
+                    支持实时全双工通信、心跳保活、JSON/Text 消息高亮解析与全文字段搜索
                   </div>
                 </div>
               ) : (
-                filteredMessages.map((m, index) => {
+                visibleMessages.map((m, index) => {
+                  const isMatch = matchedMessageIds.includes(m.id);
+                  const isCurrentMatch = m.id === currentMatchId;
+
                   if (m.direction === 'system') {
                     return (
                       <div
+                        id={`ws-msg-${m.id}`}
                         key={m.id}
-                        className="flex items-center justify-center gap-2 py-1 text-[11px] text-gray-500 font-mono"
+                        className={`stream-item-perf flex items-center justify-center gap-2 py-1 text-[11px] text-gray-500 font-mono rounded px-2 transition ${
+                          isCurrentMatch
+                            ? 'bg-teal-500/20 text-teal-300 ring-1 ring-teal-400/80 font-bold'
+                            : isMatch
+                            ? 'bg-subtle/80 text-gray-300'
+                            : ''
+                        }`}
                       >
                         <span className="w-1.5 h-1.5 rounded-full bg-gray-500" />
-                        <span>{m.data}</span>
+                        <span>{renderHighlightedText(m.data, filterText)}</span>
                         <span className="text-gray-600 text-[10px]">({m.timeStr})</span>
                       </div>
                     );
@@ -1156,8 +1313,15 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
 
                   return (
                     <div
+                      id={`ws-msg-${m.id}`}
                       key={m.id}
-                      className={`rounded-lg border transition overflow-hidden text-xs ${
+                      className={`stream-item-perf rounded-lg border transition-all duration-150 overflow-hidden text-xs ${
+                        isCurrentMatch
+                          ? 'ring-2 ring-teal-400/90 shadow-lg shadow-teal-500/10'
+                          : isMatch
+                          ? 'ring-1 ring-teal-500/40'
+                          : ''
+                      } ${
                         isSend
                           ? 'border-emerald-500/20 bg-emerald-500/5 hover:bg-emerald-500/10'
                           : 'border-sky-500/20 bg-sky-500/5 hover:bg-sky-500/10'
@@ -1181,6 +1345,31 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
                           <span className="text-[11px] text-gray-500 font-mono">
                             #{m.seq ?? dataMessageIndexMap.get(m.id) ?? index + 1}
                           </span>
+
+                          {m.isJson && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setExpandedJsonIds((prev) => ({
+                                  ...prev,
+                                  [m.id]: !prev[m.id],
+                                }))
+                              }
+                              className={`p-1 rounded transition flex items-center justify-center ${
+                                expandedJsonIds[m.id]
+                                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                                  : 'bg-subtle hover:bg-hover text-gray-400 hover:text-gray-200 border border-line'
+                              }`}
+                              title={expandedJsonIds[m.id] ? "切换回纯文本视图" : "结构化 JSON 视图"}
+                              aria-label={expandedJsonIds[m.id] ? "文本视图" : "树状视图"}
+                            >
+                              {expandedJsonIds[m.id] ? (
+                                <Code2 className="w-3 h-3 text-amber-400" />
+                              ) : (
+                                <ListTree className="w-3 h-3 text-amber-400" />
+                              )}
+                            </button>
+                          )}
                         </div>
 
                         <div className="flex items-center gap-3">
@@ -1205,9 +1394,22 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
 
                       {/* Message Body */}
                       <div className="p-3 bg-canvas/30">
-                        <pre className="font-mono text-xs text-gray-200 whitespace-pre-wrap break-all leading-relaxed max-h-80 overflow-y-auto">
-                          {m.data}
-                        </pre>
+                        {m.isJson && expandedJsonIds[m.id] ? (
+                          <div className="rounded border border-line/60 bg-surface/50 overflow-hidden max-h-96 p-1">
+                            <JsonCodeEditor
+                              value={m.data}
+                              readOnly={true}
+                              defaultView="tree"
+                              showToolbar={false}
+                              minHeight="80px"
+                              className="border-none rounded-none bg-transparent"
+                            />
+                          </div>
+                        ) : (
+                          <pre className="font-mono text-xs text-gray-200 whitespace-pre-wrap break-all leading-relaxed max-h-80 overflow-y-auto">
+                            {renderHighlightedText(m.data, filterText)}
+                          </pre>
+                        )}
                       </div>
                     </div>
                   );

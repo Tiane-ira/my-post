@@ -185,6 +185,12 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
                   placeholder="例如：商城接口项目"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleCreate();
+                    }
+                  }}
                   className="w-full bg-subtle border border-line rounded-md px-2.5 py-1.5 text-gray-200 placeholder-gray-500 focus:outline-none focus:border-accent"
                 />
               </div>
@@ -196,6 +202,12 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
                   placeholder="项目简短描述"
                   value={intro}
                   onChange={(e) => setIntro(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleCreate();
+                    }
+                  }}
                   className="w-full bg-subtle border border-line rounded-md px-2.5 py-1.5 text-gray-200 placeholder-gray-500 focus:outline-none focus:border-accent"
                 />
               </div>
@@ -209,6 +221,12 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
                   placeholder="默认位于 userData/offline-data/<projectId>"
                   value={customPath}
                   onChange={(e) => setCustomPath(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleCreate();
+                    }
+                  }}
                   className="flex-1 bg-subtle border border-line rounded-md px-2.5 py-1.5 text-gray-300 font-mono focus:outline-none focus:border-accent"
                 />
                 <button

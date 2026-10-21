@@ -497,7 +497,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
   // Submit rename
+  const isSubmittingRenameRef = useRef(false);
   const handleRenameSubmit = (node: ApiTreeNode) => {
+    if (isSubmittingRenameRef.current) return;
+    isSubmittingRenameRef.current = true;
     const trimmed = editingName.trim();
     if (trimmed && trimmed !== node.name && onRenameNode) {
       onRenameNode(node.target_id, trimmed);
@@ -505,6 +508,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
     setEditingNodeId(null);
     setEditingName('');
+    setTimeout(() => {
+      isSubmittingRenameRef.current = false;
+    }, 120);
   };
 
   // Delete node with confirmation
@@ -625,11 +631,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 type="text"
                 value={editingName}
                 onClick={(e) => e.stopPropagation()}
+                onMouseDown={(e) => e.stopPropagation()}
+                onDoubleClick={(e) => e.stopPropagation()}
                 onChange={(e) => setEditingName(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
+                    e.preventDefault();
+                    e.stopPropagation();
                     handleRenameSubmit(node);
                   } else if (e.key === 'Escape') {
+                    e.preventDefault();
+                    e.stopPropagation();
                     setEditingNodeId(null);
                   }
                 }}
@@ -644,13 +656,33 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 onlyIfTruncated={true}
                 className="min-w-0 flex-1 truncate"
               >
-                <span className="truncate text-[12px] block">{node.name}</span>
+                <span
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    setEditingNodeId(node.target_id);
+                    setEditingName(node.name);
+                  }}
+                  className="truncate text-[12px] block"
+                >
+                  {node.name}
+                </span>
               </Tooltip>
             )}
           </div>
 
-          {/* Hover Actions: only delete button */}
+          {/* Hover Actions: rename & delete buttons */}
           <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 shrink-0">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setEditingNodeId(node.target_id);
+                setEditingName(node.name);
+              }}
+              className="p-1 hover:bg-hover rounded text-gray-400 hover:text-amber-400"
+              title={isFolder ? "重命名目录" : "重命名接口"}
+            >
+              <Edit2 className="w-3 h-3" />
+            </button>
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -1116,6 +1148,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 >
                   <FolderPlus className="w-3.5 h-3.5 text-amber-400" />
                   <span>新建子目录</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingNodeId(contextMenu.node.target_id);
+                    setEditingName(contextMenu.node.name);
+                    setContextMenu(null);
+                  }}
+                  className="w-full text-left px-3 py-1.5 hover:bg-hover flex items-center gap-2 text-gray-200 transition"
+                >
+                  <Edit2 className="w-3.5 h-3.5 text-amber-400" />
+                  <span>重命名目录</span>
                 </button>
                 {onOpenShareFolder && (
                   <button

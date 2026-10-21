@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   ApiDetail,
   ApiTreeNode,
@@ -44,18 +44,18 @@ export const App: React.FC = () => {
   // Available environment & global variables for interpolation and autocomplete
   const availableVars = React.useMemo(() => {
     const map: Record<string, { value: string; source: 'env' | 'global' }> = {};
-    for (const v of globalParams.vars || []) {
-      if (v.is_checked === 1 && v.key) {
-        map[v.key] = { value: v.value || '', source: 'global' };
+    for (const v of globalParams?.vars || []) {
+      if (v && typeof v === 'object' && v.is_checked === 1 && v.key) {
+        map[v.key] = { value: typeof v.value === 'string' ? v.value : String(v.value || ''), source: 'global' };
       }
     }
     for (const v of currentEnv?.list || []) {
-      if (v.is_checked === 1 && v.key) {
-        map[v.key] = { value: v.value || '', source: 'env' };
+      if (v && typeof v === 'object' && v.is_checked === 1 && v.key) {
+        map[v.key] = { value: typeof v.value === 'string' ? v.value : String(v.value || ''), source: 'env' };
       }
     }
     return map;
-  }, [globalParams.vars, currentEnv?.list]);
+  }, [globalParams?.vars, currentEnv?.list]);
 
   // Tabs
   const [tabs, setTabs] = useState<TabItem[]>([]);
@@ -503,48 +503,86 @@ export const App: React.FC = () => {
         auth: { type: 'none' },
       },
     };
-    await window.mypostAPI.saveApiDetail(currentProject.project_id, folderId, toSave);
-    apiDetailsCacheRef.current[folderId] = toSave;
-    setFolderDetails((prev) => ({ ...prev, [folderId]: toSave }));
-    delete modifiedApisRef.current[folderId];
+    try {
+      await window.mypostAPI.saveApiDetail(currentProject.project_id, folderId, toSave);
+      apiDetailsCacheRef.current[folderId] = toSave;
+      setFolderDetails((prev) => ({ ...prev, [folderId]: toSave }));
+      delete modifiedApisRef.current[folderId];
 
-    // If folder name changed, update project tree
-    if (folderId !== '0' && data.name && data.name !== existing.name) {
-      const nextTree = treeItems.map((n) =>
-        n.target_id === folderId ? { ...n, name: data.name } : n
-      );
-      await window.mypostAPI.saveProjectTree(currentProject.project_id, nextTree);
-      setTreeItems(nextTree);
-      if (activeFolder && activeFolder.target_id === folderId) {
-        setActiveFolder({ ...activeFolder, name: data.name });
+      // If folder name changed, update project tree
+      const currentTreeNode = treeItems.find((n) => n.target_id === folderId);
+      if (folderId !== '0' && data.name && (!currentTreeNode || data.name !== currentTreeNode.name)) {
+        const nextTree = treeItems.map((n) =>
+          n.target_id === folderId ? { ...n, name: data.name } : n
+        );
+        await window.mypostAPI.saveProjectTree(currentProject.project_id, nextTree);
+        setTreeItems(nextTree);
+        if (activeFolder && activeFolder.target_id === folderId) {
+          setActiveFolder({ ...activeFolder, name: data.name });
+        }
       }
-    }
 
-    setTabs((prev) =>
-      prev.map((t) => (t.id === folderId ? { ...t, name: toSave.name, isDirty: false } : t))
-    );
+      setTabs((prev) =>
+        prev.map((t) => (t.id === folderId ? { ...t, name: toSave.name, isDirty: false } : t))
+      );
+    } catch (e: any) {
+      console.error('Save folder error:', e);
+      toast.error(`目录保存失败: ${e.message || e}`);
+    }
   };
+
+  const isSavingRef = useRef(false);
 
   const handleSaveApi = async (specificApi?: ApiDetail) => {
+    if (isSavingRef.current) return;
     const targetToSave = specificApi || activeDetail;
     if (!currentProject || !targetToSave) return;
-    await window.mypostAPI.saveApiDetail(
-      currentProject.project_id,
-      targetToSave.target_id,
-      targetToSave
-    );
-    delete modifiedApisRef.current[targetToSave.target_id];
 
-    // Refresh tree
-    const tree = await window.mypostAPI.getProjectTree(currentProject.project_id);
-    setTreeItems(tree);
+    isSavingRef.current = true;
+    try {
+      await window.mypostAPI.saveApiDetail(
+        currentProject.project_id,
+        targetToSave.target_id,
+        targetToSave
+      );
+      delete modifiedApisRef.current[targetToSave.target_id];
 
-    // Clear dirty flag
-    setTabs((prev) =>
-      prev.map((t) => (t.id === targetToSave.target_id ? { ...t, isDirty: false } : t))
-    );
-    toast.success('接口保存成功');
+      // Refresh tree
+      const tree = await window.mypostAPI.getProjectTree(currentProject.project_id);
+      setTreeItems(tree);
+
+      // Clear dirty flag
+      setTabs((prev) =>
+        prev.map((t) => (t.id === targetToSave.target_id ? { ...t, isDirty: false } : t))
+      );
+      toast.success('接口保存成功');
+    } catch (e: any) {
+      console.error('Save API error:', e);
+      toast.error(`接口保存失败: ${e.message || e}`);
+    } finally {
+      isSavingRef.current = false;
+    }
   };
+
+  // Global Ctrl+S / Cmd+S shortcut to save the active API or Folder
+  useEffect(() => {
+    const handleGlobalSave = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        e.stopPropagation();
+        if (activeDetail) {
+          handleSaveApi(activeDetail);
+        } else if (activeFolder) {
+          const detail =
+            folderDetails[activeFolder.target_id] ||
+            apiDetailsCacheRef.current[activeFolder.target_id];
+          handleSaveFolder(activeFolder.target_id, detail || activeFolder);
+        }
+      }
+    };
+    window.addEventListener('keydown', handleGlobalSave);
+    return () => window.removeEventListener('keydown', handleGlobalSave);
+  }, [activeDetail, activeFolder, folderDetails, currentProject]);
 
   const handleSaveAll = async () => {
     if (!currentProject) return;
@@ -1087,6 +1125,8 @@ export const App: React.FC = () => {
                           }}
                           isDirty={tab.isDirty}
                           preUrl={currentEnv?.pre_url || ''}
+                          treeItems={treeItems}
+                          folderDetails={folderDetails}
                         />
                       ) : (
                         <WebSocketWorkbench
@@ -1101,6 +1141,8 @@ export const App: React.FC = () => {
                           }}
                           isDirty={tab.isDirty}
                           preUrl={currentEnv?.pre_url || ''}
+                          treeItems={treeItems}
+                          folderDetails={folderDetails}
                         />
                       )}
                     </div>
@@ -1127,6 +1169,8 @@ export const App: React.FC = () => {
                       onSend={handleSendRequest}
                       preUrl={currentEnv?.pre_url || ''}
                       onExtractVariable={handleExtractVariable}
+                      treeItems={treeItems}
+                      folderDetails={folderDetails}
                     />
                   )}
 
@@ -1217,33 +1261,41 @@ export const App: React.FC = () => {
         onRefreshProjects={loadProjects}
       />
 
-      <EnvModal
-        isOpen={isEnvModalOpen}
-        onClose={() => setIsEnvModalOpen(false)}
-        envs={envs}
-        globalParams={globalParams}
-        onSaveEnv={async (env) => {
-          if (currentProject) {
-            await window.mypostAPI.saveEnv(currentProject.project_id, env);
-            const nextEnvs = await window.mypostAPI.getEnvs(currentProject.project_id);
-            setEnvs(nextEnvs);
-            if (currentEnv?.env_id === env.env_id) {
-              setCurrentEnv(env);
-            }
-          }
-        }}
-        onDeleteEnv={async (envId) => {
-          if (currentProject) {
-            await window.mypostAPI.deleteEnv(currentProject.project_id, envId);
-            const nextEnvs = await window.mypostAPI.getEnvs(currentProject.project_id);
-            setEnvs(nextEnvs);
-            if (currentEnv?.env_id === envId) {
-              setCurrentEnv(nextEnvs[0] || null);
-            }
-          }
-        }}
-        onSaveGlobalParams={handleSaveGlobalParams}
-      />
+      {isEnvModalOpen && (
+        <ErrorBoundary
+          key="env-modal-boundary"
+          isModal
+          onClose={() => setIsEnvModalOpen(false)}
+        >
+          <EnvModal
+            isOpen={isEnvModalOpen}
+            onClose={() => setIsEnvModalOpen(false)}
+            envs={envs}
+            globalParams={globalParams}
+            onSaveEnv={async (env) => {
+              if (currentProject) {
+                await window.mypostAPI.saveEnv(currentProject.project_id, env);
+                const nextEnvs = await window.mypostAPI.getEnvs(currentProject.project_id);
+                setEnvs(nextEnvs);
+                if (currentEnv?.env_id === env.env_id) {
+                  setCurrentEnv(env);
+                }
+              }
+            }}
+            onDeleteEnv={async (envId) => {
+              if (currentProject) {
+                await window.mypostAPI.deleteEnv(currentProject.project_id, envId);
+                const nextEnvs = await window.mypostAPI.getEnvs(currentProject.project_id);
+                setEnvs(nextEnvs);
+                if (currentEnv?.env_id === envId) {
+                  setCurrentEnv(nextEnvs[0] || null);
+                }
+              }
+            }}
+            onSaveGlobalParams={handleSaveGlobalParams}
+          />
+        </ErrorBoundary>
+      )}
 
       {isImportModalOpen && (
         <ImportModal
@@ -1272,12 +1324,20 @@ export const App: React.FC = () => {
         }
       />
 
-      <SettingsModal
-        isOpen={isSettingsModalOpen}
-        onClose={() => setIsSettingsModalOpen(false)}
-        currentProject={currentProject}
-        treeItems={treeItems}
-      />
+      {isSettingsModalOpen && (
+        <ErrorBoundary
+          key="settings-modal-boundary"
+          isModal
+          onClose={() => setIsSettingsModalOpen(false)}
+        >
+          <SettingsModal
+            isOpen={isSettingsModalOpen}
+            onClose={() => setIsSettingsModalOpen(false)}
+            currentProject={currentProject}
+            treeItems={treeItems}
+          />
+        </ErrorBoundary>
+      )}
     </div>
   );
 };

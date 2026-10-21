@@ -3,7 +3,9 @@ import http from 'http';
 import fs from 'fs';
 import path from 'path';
 import axios, { AxiosRequestConfig } from 'axios';
+import { encode } from '@msgpack/msgpack';
 import { ApiDetail, HttpResponseResult } from '../common/types';
+import { UrlUtils } from '../common/urlUtils';
 import { ScriptRunner } from './scriptRunner';
 
 export class NetworkEngine {
@@ -132,13 +134,7 @@ export class NetworkEngine {
       }
     }
 
-    if (resolvedPreUrl) {
-      if (targetUrl.startsWith('/')) {
-        targetUrl = `${resolvedPreUrl.replace(/\/+$/, '')}${targetUrl}`;
-      } else if (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://')) {
-        targetUrl = `${resolvedPreUrl.replace(/\/+$/, '')}/${targetUrl.replace(/^\/+/, '')}`;
-      }
-    }
+    targetUrl = UrlUtils.buildRequestUrl(targetUrl, resolvedPreUrl);
 
     // 3. Resolve Query Params
     const queryParams: Record<string, string> = {};
@@ -276,7 +272,7 @@ export class NetworkEngine {
       dataPayload = formParams.toString();
       headers['Content-Type'] = 'application/x-www-form-urlencoded';
     } else if (bodyMode === 'binary') {
-      const rawPath = api.request.body?.raw || '';
+      const rawPath = api.request.body?.binary_file || api.request.body?.raw || '';
       if (rawPath && fs.existsSync(rawPath)) {
         try {
           dataPayload = fs.readFileSync(rawPath);
@@ -287,6 +283,15 @@ export class NetworkEngine {
         dataPayload = Buffer.from(this.interpolate(rawPath, mergedVars));
       }
       headers['Content-Type'] = headers['Content-Type'] || 'application/octet-stream';
+    } else if (bodyMode === 'msgpack') {
+      const rawText = this.interpolate(api.request.body?.msgpack_raw || api.request.body?.raw || '', mergedVars);
+      headers['Content-Type'] = headers['Content-Type'] || 'application/msgpack';
+      try {
+        const parsed = JSON.parse(rawText);
+        dataPayload = Buffer.from(encode(parsed));
+      } catch {
+        dataPayload = Buffer.from(encode(rawText));
+      }
     } else if (bodyMode === 'raw') {
       const rawText = this.interpolate(api.request.body?.raw || '', mergedVars);
       const rawType = api.request.body?.raw_type || 'json';
@@ -322,6 +327,8 @@ export class NetworkEngine {
       } else if (api.request.body?.raw) {
         recordedBodyData = this.interpolate(api.request.body.raw, mergedVars);
       }
+    } else if (bodyMode === 'msgpack') {
+      recordedBodyData = this.interpolate(api.request.body?.msgpack_raw || api.request.body?.raw || '', mergedVars);
     } else if (typeof dataPayload === 'string') {
       recordedBodyData = dataPayload;
     }
@@ -337,6 +344,25 @@ export class NetworkEngine {
       bodyData: recordedBodyData,
       formParams: formParamsRecorded,
     };
+
+    // Detailed diagnostic logging for console
+    const reqTimeStr = new Date().toLocaleTimeString();
+    allLogs.push(`[${reqTimeStr}] [REQ] 发起请求: ${(api.method || 'GET').toUpperCase()} ${fullSentUrl}`);
+    if (Object.keys(headers).length > 0) {
+      allLogs.push(`[${reqTimeStr}] [REQ-HEADER] ${JSON.stringify(headers)}`);
+    }
+    if (Object.keys(queryParams).length > 0) {
+      allLogs.push(`[${reqTimeStr}] [REQ-QUERY] ${JSON.stringify(queryParams)}`);
+    }
+    if (Object.keys(pathParams).length > 0) {
+      allLogs.push(`[${reqTimeStr}] [REQ-PATH] ${JSON.stringify(pathParams)}`);
+    }
+    if (bodyMode !== 'none') {
+      const bodySummary =
+        recordedBodyData ||
+        (Object.keys(formParamsRecorded).length > 0 ? JSON.stringify(formParamsRecorded) : '');
+      allLogs.push(`[${reqTimeStr}] [REQ-BODY] (mode: ${bodyMode}) ${bodySummary || '<空载荷>'}`);
+    }
 
     // 8. Execute Request via Axios
     const config: AxiosRequestConfig = {
@@ -373,6 +399,14 @@ export class NetworkEngine {
       }
 
       const parsedCookies = this.parseSetCookie(response.headers['set-cookie']);
+
+      const resTimeStr = new Date().toLocaleTimeString();
+      allLogs.push(
+        `[${resTimeStr}] [RES] 响应完成: HTTP ${response.status} ${response.statusText || 'OK'} (耗时: ${timeMs}ms, 大小: ${sizeBytes} B)`
+      );
+      if (Object.keys(resHeaders).length > 0) {
+        allLogs.push(`[${resTimeStr}] [RES-HEADER] ${JSON.stringify(resHeaders)}`);
+      }
 
       // 9. Run Post-response Test Scripts
       let testResults: any[] = [];
@@ -414,10 +448,16 @@ export class NetworkEngine {
       };
     } catch (err: any) {
       const endTime = performance.now();
+      const timeMs = Math.round(endTime - startTime);
+      const errTimeStr = new Date().toLocaleTimeString();
+      allLogs.push(`[${errTimeStr}] [ERROR] 请求异常: ${err.message || err}`);
+      if (err.code) {
+        allLogs.push(`[${errTimeStr}] [ERROR-CODE] ${err.code}`);
+      }
       return {
         statusCode: 0,
         statusText: 'Network Error',
-        timeMs: Math.round(endTime - startTime),
+        timeMs,
         sizeBytes: 0,
         headers: {},
         cookies: [],

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X,
   Settings,
@@ -45,6 +45,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const { themeMode, setThemeMode } = useTheme();
   const [activeTab, setActiveTab] = useState<SettingsTab>('project');
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
 
   // System & Tray preference with persistence
   const [closeToTray, setCloseToTray] = useState<boolean>(() => {
@@ -100,7 +112,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   // Calibrate Metrics according to current workspace
-  const safeTreeItems = treeItems || [];
+  const safeTreeItems = (Array.isArray(treeItems) ? treeItems : []).filter(
+    (i): i is ApiTreeNode => Boolean(i && typeof i === 'object')
+  );
   const totalHttpApis = safeTreeItems.filter((i) => !i.target_type || i.target_type === 'api').length;
   const totalSse = safeTreeItems.filter((i) => i.target_type === 'sse').length;
   const totalWs = safeTreeItems.filter((i) => i.target_type === 'websocket').length;
@@ -116,10 +130,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   safeTreeItems.forEach((item) => {
     if ((!item.target_type || item.target_type === 'api') && item.method) {
-      const m = item.method.toUpperCase();
+      const m = (typeof item.method === 'string' ? item.method : '').toUpperCase();
       if (['GET', 'POST', 'PUT', 'DELETE'].includes(m)) {
         methodCounts[m] = (methodCounts[m] || 0) + 1;
-      } else {
+      } else if (m) {
         methodCounts.OTHER = (methodCounts.OTHER || 0) + 1;
       }
     }
@@ -226,7 +240,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
 
             <div className="text-[10px] text-gray-500 text-center font-mono py-1">
-              v2026.10.20 Desktop
+              v2026.10.22 Desktop
             </div>
           </div>
 
@@ -249,14 +263,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2.5">
                           <div className="w-9 h-9 rounded-lg bg-orange-500/15 text-accent border border-accent/30 flex items-center justify-center font-bold text-sm">
-                            {currentProject.name?.substring(0, 1) || 'P'}
+                            {typeof currentProject.name === 'string' && currentProject.name ? currentProject.name.substring(0, 1).toUpperCase() : 'P'}
                           </div>
                           <div>
                             <div className="font-bold text-sm text-foreground">
-                              {currentProject.name}
+                              {typeof currentProject.name === 'string' ? currentProject.name : '未命名项目'}
                             </div>
                             <div className="text-xs text-gray-400">
-                              {currentProject.intro || '暂无项目描述'}
+                              {typeof currentProject.intro === 'string' && currentProject.intro ? currentProject.intro : '暂无项目描述'}
                             </div>
                           </div>
                         </div>
@@ -269,28 +283,30 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         <div className="flex items-center justify-between p-2 rounded-lg bg-surface border border-line">
                           <span className="text-gray-400">项目标识 (ID):</span>
                           <div className="flex items-center gap-1.5 font-mono text-[11px] text-gray-200">
-                            <span className="truncate max-w-[130px]">{currentProject.project_id}</span>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                handleCopy(currentProject.project_id, 'id', '项目 ID')
-                              }
-                              className="text-gray-400 hover:text-accent p-0.5"
-                              title="复制项目 ID"
-                            >
-                              {copiedKey === 'id' ? (
-                                <Check className="w-3.5 h-3.5 text-emerald-400" />
-                              ) : (
-                                <Copy className="w-3.5 h-3.5" />
-                              )}
-                            </button>
+                            <span className="truncate max-w-[130px]">{typeof currentProject.project_id === 'string' ? currentProject.project_id : '-'}</span>
+                            {currentProject.project_id && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleCopy(String(currentProject.project_id), 'id', '项目 ID')
+                                }
+                                className="text-gray-400 hover:text-accent p-0.5"
+                                title="复制项目 ID"
+                              >
+                                {copiedKey === 'id' ? (
+                                  <Check className="w-3.5 h-3.5 text-emerald-400" />
+                                ) : (
+                                  <Copy className="w-3.5 h-3.5" />
+                                )}
+                              </button>
+                            )}
                           </div>
                         </div>
 
                         <div className="flex items-center justify-between p-2 rounded-lg bg-surface border border-line">
                           <span className="text-gray-400">创建时间:</span>
                           <span className="text-gray-200 font-mono text-[11px]">
-                            {currentProject.created_at || '刚刚'}
+                            {typeof currentProject.created_at === 'string' ? currentProject.created_at : '刚刚'}
                           </span>
                         </div>
                       </div>
@@ -301,23 +317,25 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           <span>本地存储目录:</span>
                         </span>
                         <div className="flex items-center gap-1.5 font-mono text-[11px] text-gray-300 truncate max-w-[340px]">
-                          <span className="truncate" title={currentProject.path}>
-                            {currentProject.path}
+                          <span className="truncate" title={typeof currentProject.path === 'string' ? currentProject.path : ''}>
+                            {typeof currentProject.path === 'string' ? currentProject.path : '未设置存储目录'}
                           </span>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              handleCopy(currentProject.path, 'path', '项目存储目录')
-                            }
-                            className="text-gray-400 hover:text-accent p-0.5 shrink-0"
-                            title="复制存储目录路径"
-                          >
-                            {copiedKey === 'path' ? (
-                              <Check className="w-3.5 h-3.5 text-emerald-400" />
-                            ) : (
-                              <Copy className="w-3.5 h-3.5" />
-                            )}
-                          </button>
+                          {currentProject.path && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleCopy(String(currentProject.path), 'path', '项目存储目录')
+                              }
+                              className="text-gray-400 hover:text-accent p-0.5 shrink-0"
+                              title="复制存储目录路径"
+                            >
+                              {copiedKey === 'path' ? (
+                                <Check className="w-3.5 h-3.5 text-emerald-400" />
+                              ) : (
+                                <Copy className="w-3.5 h-3.5" />
+                              )}
+                            </button>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -624,7 +642,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                 <div>
                   <h3 className="text-base font-extrabold text-foreground">mypost 桌面工作台</h3>
-                  <p className="text-xs text-gray-400 font-mono mt-0.5">Version 2026.10.20 (Release Build)</p>
+                  <p className="text-xs text-gray-400 font-mono mt-0.5">Version 2026.10.22 (Release Build)</p>
                 </div>
 
                 <p className="text-xs text-gray-300 max-w-md mx-auto leading-relaxed">

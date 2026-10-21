@@ -72,6 +72,11 @@ export interface ApiDetail {
       raw?: string;
       parameter?: KeyValueItem[];
       urlencoded?: KeyValueItem[];
+      binary_file?: string;
+      msgpack_raw?: string;
+      raw_json?: string;
+      raw_xml?: string;
+      raw_text?: string;
     };
     auth: {
       type: 'inherit' | 'none' | 'bearer' | 'basic' | 'apikey';

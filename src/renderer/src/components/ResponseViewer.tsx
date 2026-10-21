@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Clock,
   HardDrive,
@@ -16,28 +16,40 @@ import {
   Download,
   Table as TableIcon,
   Search,
+  Activity,
 } from 'lucide-react';
 import { HttpResponseResult, ResponseExample, ApiDetail } from '../../../common/types';
 import { Tooltip } from './Tooltip';
+import { JsonCodeEditor } from './JsonCodeEditor';
 
-interface ResponseViewerProps {
+export interface StreamStats {
+  status: 'idle' | 'connecting' | 'connected' | 'error';
+  elapsedDuration?: string;
+  totalBytes?: number;
+  eventsCount?: number;
+  errorMessage?: string | null;
+}
+
+export interface ResponseViewerProps {
   response: HttpResponseResult | null;
   loading: boolean;
-  onExtractVariable?: (key: string, value: string) => void;
-  examples?: ResponseExample[];
   activeApi?: ApiDetail;
+  isStreaming?: boolean;
+  streamStats?: StreamStats;
+  streamingBodySlot?: React.ReactNode;
 }
 
 export const ResponseViewer: React.FC<ResponseViewerProps> = ({
   response,
   loading,
-  onExtractVariable,
-  examples = [],
   activeApi,
+  isStreaming = false,
+  streamStats,
+  streamingBodySlot,
 }) => {
-  // Response tabs
+  // Response tabs (removed examples)
   const [activeTab, setActiveTab] = useState<
-    'body' | 'headers' | 'cookies' | 'examples' | 'actual' | 'console'
+    'body' | 'headers' | 'cookies' | 'actual' | 'console'
   >('body');
 
   // Actual request sub-tab (Header | Query | Path | Body)
@@ -47,35 +59,27 @@ export const ResponseViewer: React.FC<ResponseViewerProps> = ({
   const [copied, setCopied] = useState(false);
   const [copiedActualTable, setCopiedActualTable] = useState(false);
   const [copiedUrl, setCopiedUrl] = useState(false);
+  const [copiedLogs, setCopiedLogs] = useState(false);
 
-  // Search inside response
-  const [searchKeyword, setSearchKeyword] = useState('');
-
-  // Variable extraction
-  const [isExtractModalOpen, setIsExtractModalOpen] = useState(false);
-  const [extractPath, setExtractPath] = useState('');
-  const [extractVarName, setExtractVarName] = useState('');
-  const [extractSuccessTip, setExtractSuccessTip] = useState(false);
-
-  if (loading) {
-    return (
-      <div className="flex-1 flex flex-col items-center justify-center bg-subtle text-gray-400 gap-3 select-none">
-        <div className="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin"></div>
-        <span className="text-xs tracking-wider animate-pulse font-medium">
-          正在请求目标服务，请稍候...
-        </span>
-      </div>
-    );
-  }
-
-  if (!response) {
-    return (
-      <div className="flex-1 flex flex-col items-center justify-center bg-subtle text-gray-500 gap-2 select-none">
-        <Code2 className="w-10 h-10 stroke-[1.2] text-gray-600" />
-        <span className="text-xs">点击上方「发送」按钮，即可在此查看实时响应</span>
-      </div>
-    );
-  }
+  const prettyJsonText = useMemo(() => {
+    if (!response) return '';
+    if (typeof response.data === 'object' && response.data !== null) {
+      try {
+        return JSON.stringify(response.data, null, 2);
+      } catch {
+        return response.rawText || '';
+      }
+    }
+    if (response.rawText) {
+      try {
+        const parsed = JSON.parse(response.rawText);
+        return JSON.stringify(parsed, null, 2);
+      } catch {
+        return response.rawText;
+      }
+    }
+    return '';
+  }, [response]);
 
   const getStatusBadge = (code: number, text: string) => {
     if (code >= 200 && code < 300) {
@@ -111,6 +115,7 @@ export const ResponseViewer: React.FC<ResponseViewerProps> = ({
   };
 
   const handleCopy = () => {
+    if (!response?.rawText) return;
     navigator.clipboard.writeText(response.rawText);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -122,38 +127,10 @@ export const ResponseViewer: React.FC<ResponseViewerProps> = ({
     return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
   };
 
-  const getNestedValue = (obj: any, pathStr: string): any => {
-    if (!obj || !pathStr.trim()) return undefined;
-    const parts = pathStr.trim().split('.');
-    let curr = obj;
-    for (const part of parts) {
-      if (curr === undefined || curr === null) return undefined;
-      curr = curr[part];
-    }
-    return curr;
-  };
 
-  const currentExtractedVal = getNestedValue(response.data, extractPath);
-
-  const handleConfirmExtract = () => {
-    if (!extractVarName.trim() || currentExtractedVal === undefined) return;
-    const stringVal =
-      typeof currentExtractedVal === 'object'
-        ? JSON.stringify(currentExtractedVal)
-        : String(currentExtractedVal);
-    if (onExtractVariable) {
-      onExtractVariable(extractVarName.trim(), stringVal);
-    }
-    setExtractSuccessTip(true);
-    setTimeout(() => {
-      setExtractSuccessTip(false);
-      setIsExtractModalOpen(false);
-    }, 1200);
-  };
-
-  const headersCount = Object.keys(response.headers || {}).length;
-  const cookiesList = response.cookies || [];
-  const actualReq = response.actualRequest;
+  const headersCount = Object.keys(response?.headers || {}).length;
+  const cookiesList = response?.cookies || [];
+  const actualReq = response?.actualRequest;
 
   // Actual request params helper
   const actualHeaders = actualReq?.headers || {};
@@ -193,7 +170,7 @@ export const ResponseViewer: React.FC<ResponseViewerProps> = ({
     <div className="flex-1 flex flex-col bg-subtle overflow-hidden relative">
       {/* Response Header / Stats Bar */}
       <div className="h-10 px-3 bg-surface border-b border-line flex items-center justify-between text-xs select-none">
-        {/* Left Tabs (实时响应, 响应头, Cookie, 响应示例, 实际请求, 控制台) */}
+        {/* Left Tabs (实时响应, 响应头, Cookie, 实际请求, 控制台) */}
         <div className="flex items-center gap-1 overflow-x-auto">
           <button
             onClick={() => setActiveTab('body')}
@@ -234,17 +211,6 @@ export const ResponseViewer: React.FC<ResponseViewerProps> = ({
             )}
           </button>
 
-          <button
-            onClick={() => setActiveTab('examples')}
-            className={`px-3 py-1.5 rounded-md transition font-medium text-xs whitespace-nowrap ${
-              activeTab === 'examples'
-                ? 'bg-accent/15 text-accent'
-                : 'text-gray-400 hover:text-gray-200'
-            }`}
-          >
-            响应示例
-          </button>
-
           {/* 实际请求 */}
           <button
             onClick={() => setActiveTab('actual')}
@@ -255,7 +221,7 @@ export const ResponseViewer: React.FC<ResponseViewerProps> = ({
             }`}
           >
             <span>实际请求</span>
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+            {actualReq && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>}
           </button>
 
           <button
@@ -268,7 +234,7 @@ export const ResponseViewer: React.FC<ResponseViewerProps> = ({
           >
             <Terminal className="w-3.5 h-3.5" />
             <span>控制台</span>
-            {response.logs && response.logs.length > 0 && (
+            {response?.logs && response.logs.length > 0 && (
               <span className="text-[10px] text-gray-500">({response.logs.length})</span>
             )}
           </button>
@@ -276,46 +242,147 @@ export const ResponseViewer: React.FC<ResponseViewerProps> = ({
 
         {/* Right Stats & Indicators (Status, Time, Size, Globe icon, Download icon) */}
         <div className="flex items-center gap-2.5 text-xs">
-          {getStatusBadge(response.statusCode, response.statusText)}
+          {isStreaming && streamStats ? (
+            <>
+              {streamStats.status === 'connected' ? (
+                <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 font-bold border border-emerald-500/30 text-xs">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                  已连接 ({streamStats.elapsedDuration || '00:00'})
+                </span>
+              ) : streamStats.status === 'connecting' ? (
+                <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-500/15 text-amber-400 font-bold border border-amber-500/30 text-xs">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping"></span>
+                  连接中...
+                </span>
+              ) : streamStats.status === 'error' ? (
+                <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-rose-500/20 text-rose-300 font-bold border border-rose-500/30 text-xs">
+                  <span className="w-1.5 h-1.5 rounded-full bg-rose-400"></span>
+                  连接异常
+                </span>
+              ) : (
+                <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-gray-500/15 text-gray-400 font-medium border border-line text-xs">
+                  <span className="w-1.5 h-1.5 rounded-full bg-gray-500"></span>
+                  未连接
+                </span>
+              )}
 
-          <span className="text-gray-400 font-mono text-[11px] flex items-center gap-0.5">
-            <Clock className="w-3 h-3 text-gray-500" />
-            {response.timeMs}ms
-          </span>
+              {streamStats.eventsCount !== undefined && (
+                <span className="text-gray-400 font-mono text-[11px] flex items-center gap-1">
+                  <Activity className="w-3 h-3 text-sky-400" />
+                  {streamStats.eventsCount} 事件
+                </span>
+              )}
 
-          <span className="text-gray-400 font-mono text-[11px] flex items-center gap-0.5">
-            <HardDrive className="w-3 h-3 text-gray-500" />
-            {formatSize(response.sizeBytes)}
-          </span>
+              <span className="text-gray-400 font-mono text-[11px] flex items-center gap-0.5">
+                <HardDrive className="w-3 h-3 text-gray-500" />
+                {formatSize(streamStats.totalBytes || response?.sizeBytes || 0)}
+              </span>
 
-          <Tooltip content="网络连接状态: 已建立并返回" delayMs={400}>
-            <button
-              type="button"
-              className="p-1 rounded text-gray-400 hover:text-gray-200 transition"
-              aria-label="网络状态"
-            >
-              <Globe className="w-3.5 h-3.5 text-emerald-400" />
-            </button>
-          </Tooltip>
+              <Tooltip
+                content={
+                  streamStats.status === 'connected'
+                    ? '网络连接状态: 已建立 SSE 事件流连接'
+                    : streamStats.status === 'connecting'
+                    ? '网络连接状态: 正在建立连接'
+                    : '网络连接状态: 未连接'
+                }
+                delayMs={400}
+              >
+                <button
+                  type="button"
+                  className="p-1 rounded text-gray-400 hover:text-gray-200 transition"
+                  aria-label="网络状态"
+                >
+                  <Globe
+                    className={`w-3.5 h-3.5 ${
+                      streamStats.status === 'connected'
+                        ? 'text-emerald-400'
+                        : streamStats.status === 'connecting'
+                        ? 'text-amber-400 animate-pulse'
+                        : 'text-gray-500'
+                    }`}
+                  />
+                </button>
+              </Tooltip>
+            </>
+          ) : loading ? (
+            <div className="flex items-center gap-2 text-xs">
+              <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-accent/15 text-accent font-bold border border-accent/30 text-xs">
+                <div className="w-2.5 h-2.5 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+                请求中...
+              </span>
+              <span className="text-gray-500 font-mono text-[11px] flex items-center gap-0.5">
+                <Clock className="w-3 h-3 text-gray-500 animate-pulse" />
+                计算中...
+              </span>
+            </div>
+          ) : response ? (
+            <>
+              {getStatusBadge(response.statusCode, response.statusText)}
 
-          <Tooltip content="导出并下载响应内容" delayMs={400}>
-            <button
-              type="button"
-              onClick={() => {
-                const blob = new Blob([response.rawText], { type: 'text/plain;charset=utf-8' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `response-${response.statusCode}.json`;
-                a.click();
-                URL.revokeObjectURL(url);
-              }}
-              className="p-1 rounded text-gray-400 hover:text-gray-200 transition"
-              aria-label="下载响应"
-            >
-              <Download className="w-3.5 h-3.5 text-gray-400 hover:text-foreground" />
-            </button>
-          </Tooltip>
+              <span className="text-gray-400 font-mono text-[11px] flex items-center gap-0.5">
+                <Clock className="w-3 h-3 text-gray-500" />
+                {response.timeMs}ms
+              </span>
+
+              <span className="text-gray-400 font-mono text-[11px] flex items-center gap-0.5">
+                <HardDrive className="w-3 h-3 text-gray-500" />
+                {formatSize(response.sizeBytes)}
+              </span>
+
+              <Tooltip content="网络连接状态: 已建立并返回" delayMs={400}>
+                <button
+                  type="button"
+                  className="p-1 rounded text-gray-400 hover:text-gray-200 transition"
+                  aria-label="网络状态"
+                >
+                  <Globe className="w-3.5 h-3.5 text-emerald-400" />
+                </button>
+              </Tooltip>
+
+              <Tooltip content="导出并下载响应内容" delayMs={400}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const blob = new Blob([response.rawText], { type: 'text/plain;charset=utf-8' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `response-${response.statusCode}.json`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  }}
+                  className="p-1 rounded text-gray-400 hover:text-gray-200 transition"
+                  aria-label="下载响应"
+                >
+                  <Download className="w-3.5 h-3.5 text-gray-400 hover:text-foreground" />
+                </button>
+              </Tooltip>
+            </>
+          ) : (
+            <div className="flex items-center gap-2.5 text-xs">
+              <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-subtle border border-line text-gray-400 font-medium text-xs">
+                <span className="w-1.5 h-1.5 rounded-full bg-gray-500"></span>
+                未发送
+              </span>
+
+              <span className="text-gray-500 font-mono text-[11px] flex items-center gap-0.5">
+                <Clock className="w-3 h-3 text-gray-600" />
+                - ms
+              </span>
+
+              <span className="text-gray-500 font-mono text-[11px] flex items-center gap-0.5">
+                <HardDrive className="w-3 h-3 text-gray-600" />
+                - B
+              </span>
+
+              <Tooltip content="网络连接状态: 尚未发送请求" delayMs={400}>
+                <div className="p-1 text-gray-600 cursor-default" aria-label="网络状态">
+                  <Globe className="w-3.5 h-3.5" />
+                </div>
+              </Tooltip>
+            </div>
+          )}
         </div>
       </div>
 
@@ -323,116 +390,119 @@ export const ResponseViewer: React.FC<ResponseViewerProps> = ({
       <div className="flex-1 overflow-auto p-3 bg-surface">
         {/* 1. 实时响应 (Live Response Body) */}
         {activeTab === 'body' && (
-          <div className="h-full flex flex-col">
-            {/* Body Mode Selector & Tools Toolbar */}
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center bg-subtle border border-line rounded p-0.5 text-xs">
-                <button
-                  onClick={() => setBodyMode('pretty')}
-                  className={`px-2 py-0.5 rounded flex items-center gap-1 ${
-                    bodyMode === 'pretty'
-                      ? 'bg-accent text-white font-medium'
-                      : 'text-gray-400 hover:text-foreground'
-                  }`}
-                >
-                  <Code2 className="w-3 h-3" />
-                  Pretty
-                </button>
-                <button
-                  onClick={() => setBodyMode('raw')}
-                  className={`px-2 py-0.5 rounded flex items-center gap-1 ${
-                    bodyMode === 'raw'
-                      ? 'bg-accent text-white font-medium'
-                      : 'text-gray-400 hover:text-foreground'
-                  }`}
-                >
-                  <FileText className="w-3 h-3" />
-                  Raw
-                </button>
-                <button
-                  onClick={() => setBodyMode('preview')}
-                  className={`px-2 py-0.5 rounded flex items-center gap-1 ${
-                    bodyMode === 'preview'
-                      ? 'bg-accent text-white font-medium'
-                      : 'text-gray-400 hover:text-foreground'
-                  }`}
-                >
-                  <Eye className="w-3 h-3" />
-                  Preview
-                </button>
+          streamingBodySlot ? (
+            <div className="h-full flex flex-col -m-3">
+              {streamingBodySlot}
+            </div>
+          ) : loading ? (
+            <div className="h-full flex flex-col items-center justify-center text-gray-400 gap-3 select-none py-16">
+              <div className="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin"></div>
+              <span className="text-xs tracking-wider animate-pulse font-medium">
+                正在请求目标服务，请稍候...
+              </span>
+            </div>
+          ) : !response ? (
+            <div className="h-full flex flex-col items-center justify-center text-gray-500 gap-3 select-none py-12">
+              <div className="w-12 h-12 rounded-xl bg-subtle border border-line flex items-center justify-center text-gray-400">
+                <Code2 className="w-6 h-6 stroke-[1.5]" />
               </div>
-
-              {/* Advanced Response Actions: Extract to Variable */}
-              <div className="flex items-center gap-2">
-                {/* Search within response */}
-                <div className="relative">
-                  <Search className="w-3 h-3 text-gray-500 absolute left-2 top-2" />
-                  <input
-                    type="text"
-                    value={searchKeyword}
-                    onChange={(e) => setSearchKeyword(e.target.value)}
-                    placeholder="搜索响应内容..."
-                    className="bg-surface border border-line rounded pl-6 pr-2 py-0.5 text-[11px] text-gray-200 placeholder-gray-500 focus:outline-none focus:border-accent"
-                  />
+              <div className="text-center space-y-1">
+                <div className="text-xs font-semibold text-gray-300">
+                  点击上方「发送」按钮，即可在此查看实时响应
+                </div>
+                <div className="text-[11px] text-gray-500">
+                  支持快捷键 <kbd className="px-1.5 py-0.5 rounded bg-subtle border border-line font-mono text-[10px] text-gray-400">Ctrl</kbd> + <kbd className="px-1.5 py-0.5 rounded bg-subtle border border-line font-mono text-[10px] text-gray-400">Enter</kbd> 快速发起请求
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="h-full flex flex-col">
+              {/* Body Mode Selector & Tools Toolbar */}
+              <div className="flex items-center justify-between mb-1.5">
+                <div className="flex items-center bg-subtle border border-line rounded p-0.5 text-xs">
+                  <button
+                    onClick={() => setBodyMode('pretty')}
+                    className={`px-2.5 py-0.5 rounded flex items-center gap-1 transition ${
+                      bodyMode === 'pretty'
+                        ? 'bg-accent text-white font-medium'
+                        : 'text-gray-400 hover:text-foreground'
+                    }`}
+                  >
+                    <Code2 className="w-3 h-3" />
+                    <span>Pretty</span>
+                  </button>
+                  <button
+                    onClick={() => setBodyMode('raw')}
+                    className={`px-2.5 py-0.5 rounded flex items-center gap-1 transition ${
+                      bodyMode === 'raw'
+                        ? 'bg-accent text-white font-medium'
+                        : 'text-gray-400 hover:text-foreground'
+                    }`}
+                  >
+                    <FileText className="w-3 h-3" />
+                    <span>Raw</span>
+                  </button>
+                  <button
+                    onClick={() => setBodyMode('preview')}
+                    className={`px-2.5 py-0.5 rounded flex items-center gap-1 transition ${
+                      bodyMode === 'preview'
+                        ? 'bg-accent text-white font-medium'
+                        : 'text-gray-400 hover:text-foreground'
+                    }`}
+                  >
+                    <Eye className="w-3 h-3" />
+                    <span>Preview</span>
+                  </button>
                 </div>
 
-                <Tooltip content={copied ? '已复制响应内容' : '复制响应内容'} delayMs={400}>
-                  <button
-                    onClick={handleCopy}
-                    className="p-1.5 rounded-lg bg-subtle hover:bg-hover border border-line text-gray-300 hover:text-foreground transition"
-                    aria-label="复制"
-                  >
-                    {copied ? (
-                      <Check className="w-3.5 h-3.5 text-emerald-400" />
-                    ) : (
-                      <Copy className="w-3.5 h-3.5" />
-                    )}
-                  </button>
-                </Tooltip>
+                {bodyMode === 'preview' && (
+                  <div className="flex items-center gap-2">
+                    <Tooltip content={copied ? '已复制响应内容' : '复制响应内容'} delayMs={400}>
+                      <button
+                        onClick={handleCopy}
+                        className="p-1 rounded bg-subtle hover:bg-hover border border-line text-gray-300 hover:text-foreground transition"
+                        aria-label="复制"
+                      >
+                        {copied ? (
+                          <Check className="w-3.5 h-3.5 text-emerald-400" />
+                        ) : (
+                          <Copy className="w-3.5 h-3.5" />
+                        )}
+                      </button>
+                    </Tooltip>
+                  </div>
+                )}
+              </div>
 
-                {onExtractVariable &&
-                  typeof response.data === 'object' &&
-                  response.data !== null && (
-                    <button
-                      onClick={() => {
-                        setExtractPath('token');
-                        setExtractVarName('token');
-                        setIsExtractModalOpen(true);
-                      }}
-                      className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 text-xs font-medium transition shadow-sm"
-                      title="从返回的 JSON 中快速提取字段存为环境变量"
-                    >
-                      <Zap className="w-3.5 h-3.5 text-amber-400" />
-                      <span>⚡ 提取变量</span>
-                    </button>
-                  )}
+              {/* Viewer Body */}
+              <div className="flex-1 min-h-0 border border-line rounded-lg bg-surface overflow-hidden flex flex-col font-mono text-xs">
+                {response.error ? (
+                  <div className="p-3 text-rose-400 whitespace-pre-wrap overflow-auto">{response.error}</div>
+                ) : bodyMode === 'pretty' ? (
+                  <JsonCodeEditor
+                    value={prettyJsonText}
+                    readOnly={true}
+                    defaultView="code"
+                    className="h-full border-none rounded-none"
+                  />
+                ) : bodyMode === 'raw' ? (
+                  <JsonCodeEditor
+                    value={response.rawText || ''}
+                    readOnly={true}
+                    defaultView="code"
+                    className="h-full border-none rounded-none"
+                  />
+                ) : (
+                  <iframe
+                    srcDoc={response.rawText}
+                    sandbox="allow-same-origin"
+                    className="w-full h-full bg-white rounded"
+                    title="HTML Preview"
+                  />
+                )}
               </div>
             </div>
-
-            {/* Viewer Body */}
-            <div className="flex-1 border border-line rounded-lg bg-surface p-3 overflow-auto font-mono text-xs text-gray-200">
-              {response.error ? (
-                <div className="text-rose-400 whitespace-pre-wrap">{response.error}</div>
-              ) : bodyMode === 'pretty' ? (
-                <pre className="whitespace-pre-wrap leading-relaxed select-text">
-                  {typeof response.data === 'object' && response.data !== null
-                    ? JSON.stringify(response.data, null, 2)
-                    : response.rawText}
-                </pre>
-              ) : bodyMode === 'raw' ? (
-                <pre className="whitespace-pre-wrap leading-relaxed select-text">
-                  {response.rawText}
-                </pre>
-              ) : (
-                <iframe
-                  srcDoc={response.rawText}
-                  sandbox="allow-same-origin"
-                  className="w-full h-full bg-white rounded"
-                  title="HTML Preview"
-                />
-              )}
-            </div>
-          </div>
+          )
         )}
 
         {/* 2. 实际请求 */}
@@ -531,7 +601,9 @@ export const ResponseViewer: React.FC<ResponseViewerProps> = ({
                     </div>
                     <div className="divide-y divide-line">
                       {Object.keys(actualHeaders).length === 0 ? (
-                        <div className="py-6 text-center text-gray-500">无发送 Header 参数</div>
+                        <div className="py-6 text-center text-gray-500">
+                          {actualReq ? '无发送 Header 参数' : '尚未发送请求，发送后可查看实际请求 Header'}
+                        </div>
                       ) : (
                         Object.entries(actualHeaders).map(([k, v]) => (
                           <div
@@ -555,7 +627,9 @@ export const ResponseViewer: React.FC<ResponseViewerProps> = ({
                     </div>
                     <div className="divide-y divide-line">
                       {Object.keys(actualQuery).length === 0 ? (
-                        <div className="py-6 text-center text-gray-500">无发送 Query 参数</div>
+                        <div className="py-6 text-center text-gray-500">
+                          {actualReq ? '无发送 Query 参数' : '尚未发送请求，发送后可查看实际 Query 参数'}
+                        </div>
                       ) : (
                         Object.entries(actualQuery).map(([k, v]) => (
                           <div
@@ -579,7 +653,9 @@ export const ResponseViewer: React.FC<ResponseViewerProps> = ({
                     </div>
                     <div className="divide-y divide-line">
                       {Object.keys(actualPath).length === 0 ? (
-                        <div className="py-6 text-center text-gray-500">无 Path 路径参数</div>
+                        <div className="py-6 text-center text-gray-500">
+                          {actualReq ? '无 Path 路径参数' : '尚未发送请求，发送后可查看实际 Path 参数'}
+                        </div>
                       ) : (
                         Object.entries(actualPath).map(([k, v]) => (
                           <div
@@ -627,7 +703,9 @@ export const ResponseViewer: React.FC<ResponseViewerProps> = ({
                       </pre>
                     ) : (
                       <div className="text-gray-500 text-center py-4">
-                        本次请求无 Body 载荷参数 (mode: {actualReq?.bodyMode || 'none'})
+                        {actualReq
+                          ? `本次请求无 Body 载荷参数 (mode: ${actualReq?.bodyMode || 'none'})`
+                          : '尚未发送请求，发送后可查看实际 Body 载荷'}
                       </div>
                     )}
                   </div>
@@ -645,15 +723,25 @@ export const ResponseViewer: React.FC<ResponseViewerProps> = ({
               <div>值 (Value)</div>
             </div>
             <div className="divide-y divide-line">
-              {Object.entries(response.headers).map(([k, v]) => (
-                <div
-                  key={k}
-                  className="grid grid-cols-[220px_1fr] py-1.5 px-3 hover:bg-hover/50"
-                >
-                  <div className="font-mono text-accent select-all">{k}</div>
-                  <div className="font-mono text-gray-300 break-all select-all">{v}</div>
+              {headersCount === 0 ? (
+                <div className="py-8 text-center text-gray-500">
+                  {isStreaming
+                    ? '尚未连接或服务器未返回响应头'
+                    : response
+                    ? '无返回 Header 参数'
+                    : '暂无响应头数据，请发送请求后查看'}
                 </div>
-              ))}
+              ) : (
+                Object.entries(response?.headers || {}).map(([k, v]) => (
+                  <div
+                    key={k}
+                    className="grid grid-cols-[220px_1fr] py-1.5 px-3 hover:bg-hover/50"
+                  >
+                    <div className="font-mono text-accent select-all">{k}</div>
+                    <div className="font-mono text-gray-300 break-all select-all">{v}</div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         )}
@@ -663,7 +751,7 @@ export const ResponseViewer: React.FC<ResponseViewerProps> = ({
           <div className="border border-line rounded-lg overflow-hidden bg-surface text-xs">
             {cookiesList.length === 0 ? (
               <div className="py-12 text-center text-gray-500 text-xs">
-                本次请求未包含 Set-Cookie 响应头
+                {response ? '本次请求未包含 Set-Cookie 响应头' : '暂无 Cookie 数据，请发送请求后查看'}
               </div>
             ) : (
               <div>
@@ -695,146 +783,85 @@ export const ResponseViewer: React.FC<ResponseViewerProps> = ({
           </div>
         )}
 
-        {/* 5. 响应示例 (Response Examples) */}
-        {activeTab === 'examples' && (
-          <div className="space-y-3">
-            <div className="flex items-center justify-between text-xs text-gray-400">
-              <span>当前接口配置的响应示例列表：</span>
+        {/* 控制台与请求排查日志 (Console & Request Diagnostics) */}
+        {activeTab === 'console' && (
+          <div className="flex flex-col h-full border border-line rounded-lg bg-surface overflow-hidden">
+            <div className="px-3 py-2 bg-subtle border-b border-line flex items-center justify-between text-xs select-none">
+              <div className="flex items-center gap-2 text-gray-300 font-medium">
+                <Terminal className="w-3.5 h-3.5 text-accent" />
+                <span>控制台与请求排查日志</span>
+                {response?.logs && response.logs.length > 0 && (
+                  <span className="px-1.5 py-0.2 rounded bg-surface border border-line text-[10px] text-gray-400 font-mono">
+                    {response.logs.length} 条
+                  </span>
+                )}
+              </div>
+              {response?.logs && response.logs.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(response.logs!.join('\n'));
+                    setCopiedLogs(true);
+                    setTimeout(() => setCopiedLogs(false), 2000);
+                  }}
+                  className="px-2 py-1 rounded bg-surface hover:bg-hover border border-line text-[11px] text-gray-300 hover:text-foreground flex items-center gap-1 transition"
+                  title="复制全部日志"
+                >
+                  {copiedLogs ? (
+                    <>
+                      <Check className="w-3 h-3 text-emerald-400" />
+                      <span className="text-emerald-400">已复制</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3 h-3" />
+                      <span>复制全部日志</span>
+                    </>
+                  )}
+                </button>
+              )}
             </div>
 
-            {examples.length === 0 ? (
-              <div className="border border-line rounded-lg bg-surface py-12 text-center text-gray-500 text-xs">
-                暂无配置响应示例
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {examples.map((ex) => (
-                  <div
-                    key={ex.example_id}
-                    className="p-3 rounded-lg border border-line bg-surface space-y-2"
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/15 text-emerald-400">
-                          {ex.expect?.code || 200}
-                        </span>
-                        <span className="font-semibold text-gray-200 text-xs">{ex.name}</span>
-                        {ex.expect?.is_default === 1 && (
-                          <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300">
-                            默认
-                          </span>
-                        )}
-                      </div>
-                      <span className="text-[11px] text-gray-500 font-mono">
-                        {ex.expect?.content_type || 'application/json'}
-                      </span>
-                    </div>
-                    <pre className="p-2 rounded bg-surface text-gray-300 font-mono text-[11px] max-h-36 overflow-auto">
-                      {ex.raw}
-                    </pre>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* 6. 控制台 (Console) */}
-        {activeTab === 'console' && (
-          <div className="border border-line rounded-lg bg-surface p-3 font-mono text-xs text-gray-300 space-y-1">
-            {!response.logs || response.logs.length === 0 ? (
-              <div className="text-gray-500">无控制台打印日志</div>
-            ) : (
-              response.logs.map((log, idx) => (
-                <div key={idx} className="leading-relaxed">
-                  <span className="text-gray-500 mr-2">[{idx + 1}]</span>
-                  <span>{log}</span>
+            <div className="flex-1 overflow-auto p-3 font-mono text-xs space-y-1.5 bg-surface">
+              {!response?.logs || response.logs.length === 0 ? (
+                <div className="py-12 text-center text-gray-500 text-xs">
+                  {response
+                    ? '本次请求未产生额外的控制台打印日志'
+                    : '暂无控制台日志，发送请求或执行脚本后在此查看详细排查信息'}
                 </div>
-              ))
-            )}
+              ) : (
+                response.logs.map((log, idx) => {
+                  const isError = log.includes('[ERROR]') || log.includes('[ERROR-');
+                  const isReq = log.includes('[REQ]') || log.includes('[REQ-');
+                  const isRes = log.includes('[RES]') || log.includes('[RES-');
+                  const isScript = log.includes('[PRE-SCRIPT]') || log.includes('[POST-SCRIPT]');
+
+                  let rowStyle = 'text-gray-300 hover:bg-hover/30';
+                  if (isError) {
+                    rowStyle = 'text-rose-400 bg-rose-500/10 border-l-2 border-rose-500 pl-2 font-semibold';
+                  } else if (isReq) {
+                    rowStyle = 'text-sky-300 bg-sky-500/5 border-l-2 border-sky-500/60 pl-2';
+                  } else if (isRes) {
+                    rowStyle = 'text-emerald-300 bg-emerald-500/5 border-l-2 border-emerald-500/60 pl-2';
+                  } else if (isScript) {
+                    rowStyle = 'text-amber-300 bg-amber-500/5 border-l-2 border-amber-500/60 pl-2';
+                  }
+
+                  return (
+                    <div
+                      key={idx}
+                      className={`leading-relaxed py-1 rounded px-1 transition ${rowStyle} select-text break-all whitespace-pre-wrap`}
+                    >
+                      <span className="text-gray-500 mr-2 select-none text-[11px]">[{idx + 1}]</span>
+                      <span>{log}</span>
+                    </div>
+                  );
+                })
+              )}
+            </div>
           </div>
         )}
       </div>
-
-      {/* Extract Variable Modal */}
-      {isExtractModalOpen && (
-        <div className="absolute inset-0 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="w-96 bg-surface border border-line rounded-xl shadow-2xl p-4 text-xs space-y-3">
-            <div className="flex items-center justify-between pb-2 border-b border-line">
-              <div className="font-bold text-foreground flex items-center gap-1.5">
-                <Zap className="w-4 h-4 text-amber-400" />
-                <span>从响应提取为环境变量</span>
-              </div>
-              <button
-                onClick={() => setIsExtractModalOpen(false)}
-                className="text-gray-400 hover:text-foreground"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div>
-              <label className="block text-gray-400 mb-1">
-                JSON 字段路径 (支持点语法，如 data.token)
-              </label>
-              <input
-                type="text"
-                value={extractPath}
-                onChange={(e) => setExtractPath(e.target.value)}
-                placeholder="例如: token 或 data.user.id"
-                className="w-full bg-surface border border-line rounded px-2.5 py-1.5 text-gray-200 focus:outline-none focus:border-amber-400 font-mono"
-              />
-            </div>
-
-            <div>
-              <label className="block text-gray-400 mb-1">存储的环境变量名称</label>
-              <input
-                type="text"
-                value={extractVarName}
-                onChange={(e) => setExtractVarName(e.target.value)}
-                placeholder="例如: auth_token"
-                className="w-full bg-surface border border-line rounded px-2.5 py-1.5 text-gray-200 focus:outline-none focus:border-amber-400"
-              />
-            </div>
-
-            {/* Extracted Value Live Preview */}
-            <div className="p-2.5 rounded bg-surface border border-line space-y-1">
-              <span className="text-gray-400 block text-[11px]">提取字段实时预览：</span>
-              <div className="font-mono text-amber-300 break-all max-h-20 overflow-auto">
-                {currentExtractedVal !== undefined
-                  ? typeof currentExtractedVal === 'object'
-                    ? JSON.stringify(currentExtractedVal)
-                    : String(currentExtractedVal)
-                  : '(未匹配到此字段或响应非有效对象)'}
-              </div>
-            </div>
-
-            {extractSuccessTip && (
-              <div className="text-emerald-400 font-medium text-center py-1">
-                ✓ 提取成功，已写入当前环境变量！
-              </div>
-            )}
-
-            <div className="flex justify-end gap-2 pt-2 border-t border-line">
-              <button
-                type="button"
-                onClick={() => setIsExtractModalOpen(false)}
-                className="px-3 py-1.5 rounded bg-subtle hover:bg-hover text-gray-300 font-medium transition"
-              >
-                取消
-              </button>
-              <button
-                type="button"
-                disabled={currentExtractedVal === undefined || !extractVarName.trim()}
-                onClick={handleConfirmExtract}
-                className="px-4 py-1.5 rounded bg-accent hover:bg-accent disabled:opacity-50 text-white font-medium transition shadow-md"
-              >
-                写入环境变量
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

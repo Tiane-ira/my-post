@@ -269,6 +269,10 @@ function createWindow() {
     console.error('[main] WebContents render-process-gone:', details);
   });
 
+  mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+    console.log(`[renderer ${level}] ${message} (${sourceId}:${line})`);
+  });
+
   // Remove default menu
   Menu.setApplicationMenu(null);
 
@@ -318,6 +322,15 @@ function setupIPC() {
   ipcMain.handle('app:setCloseToTray', (_e, enabled: boolean) => {
     closeToTray = !!enabled;
     return closeToTray;
+  });
+  ipcMain.handle('app:writeDebugLog', (_e, text: string) => {
+    try {
+      const logFile = path.join(process.cwd(), 'runtime_error.log');
+      fs.appendFileSync(logFile, `[${new Date().toISOString()}] ${text}\n\n`);
+      console.error(`[debug-log] ${text}`);
+    } catch (err) {
+      console.error('Failed to write debug log:', err);
+    }
   });
 
   // FileDB - Projects
@@ -614,7 +627,8 @@ function setupIPC() {
 
           if (
             options.body &&
-            (options.method === 'POST' || options.method === 'PUT' || options.method === 'PATCH')
+            options.method !== 'GET' &&
+            options.method !== 'HEAD'
           ) {
             req.write(options.body);
           }

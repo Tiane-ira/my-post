@@ -80,6 +80,30 @@ describe('DataImporters Engine', () => {
       expect(updated.request.auth.bearer?.token).toBe('abc-xyz-token');
     });
 
+    it('should strip environment preUrl from url when curl command matches current environment', () => {
+      const curl = `curl "https://api.example.com/api/v1/orders/999?status=active" -H "X-Token: 123"`;
+      const baseApi: any = { target_id: 'api-env-1' };
+      const preUrl = 'https://api.example.com';
+
+      const updated = DataImporters.curlToApiDetail(curl, baseApi, preUrl);
+      expect(updated.url).toBe('/api/v1/orders/999?status=active');
+      expect(updated.request.query.parameter.length).toBe(1);
+      expect(updated.request.query.parameter[0].key).toBe('status');
+      expect(updated.request.query.parameter[0].value).toBe('active');
+    });
+
+    it('should keep full url when curl command does not match current environment preUrl', () => {
+      const curl = `curl "https://httpbin.org/get?source=postman"`;
+      const baseApi: any = { target_id: 'api-env-2' };
+      const preUrl = 'http://localhost:8080';
+
+      const updated = DataImporters.curlToApiDetail(curl, baseApi, preUrl);
+      expect(updated.url).toBe('https://httpbin.org/get?source=postman');
+      expect(updated.request.query.parameter.length).toBe(1);
+      expect(updated.request.query.parameter[0].key).toBe('source');
+      expect(updated.request.query.parameter[0].value).toBe('postman');
+    });
+
     it('should parse Windows CMD multiline cURL with carets and caret escaping', () => {
       const cmdCurl = `curl ^"https://api.example.com/api/v1/auth/login?source=client^" ^
   -H ^"accept: application/json^" ^
