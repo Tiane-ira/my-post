@@ -4,7 +4,10 @@ import { renderToString } from 'react-dom/server';
 import { FeedbackProvider } from '../src/renderer/src/components/FeedbackContext';
 import { EnvModal } from '../src/renderer/src/components/EnvModal';
 import { SettingsModal } from '../src/renderer/src/components/SettingsModal';
-import { EnvironmentInfo, GlobalParams, ProjectInfo, ApiTreeNode } from '../src/common/types';
+import { ResponseViewer } from '../src/renderer/src/components/ResponseViewer';
+import { WebSocketWorkbench } from '../src/renderer/src/components/WebSocketWorkbench';
+import { ApiWorkbench } from '../src/renderer/src/components/ApiWorkbench';
+import { EnvironmentInfo, GlobalParams, ProjectInfo, ApiTreeNode, HttpResponseResult, ApiDetail } from '../src/common/types';
 
 describe('Modal Rendering Diagnostics', () => {
   beforeAll(() => {
@@ -251,5 +254,152 @@ describe('Modal Rendering Diagnostics', () => {
       }).not.toThrow();
     }
   });
+
+  it('renders ResponseViewer with cancel button in response body when loading', () => {
+    let cancelCalled = false;
+    const html = renderToString(
+      <FeedbackProvider>
+        <ResponseViewer
+          response={null}
+          loading={true}
+          onCancel={() => { cancelCalled = true; }}
+        />
+      </FeedbackProvider>
+    );
+    expect(html).toContain('取消请求');
+    expect(html).toContain('请求进行中');
+  });
+
+  it('renders ResponseViewer with canceled banner when response statusText is Canceled', () => {
+    const canceledResponse: HttpResponseResult = {
+      statusCode: 0,
+      statusText: 'Canceled',
+      timeMs: 120,
+      sizeBytes: 0,
+      headers: {},
+      cookies: [],
+      data: null,
+      rawText: '',
+      error: '请求已被手动取消',
+      logs: ['[CANCEL] 用户手动取消了本次请求'],
+    };
+
+    const html = renderToString(
+      <FeedbackProvider>
+        <ResponseViewer
+          response={canceledResponse}
+          loading={false}
+        />
+      </FeedbackProvider>
+    );
+    expect(html).toContain('已取消 (Canceled)');
+    expect(html).toContain('请求已手动取消');
+  });
+
+  it('renders WebSocketWorkbench with top-bottom layout (params on top-left, sender on top-right, response area at bottom)', () => {
+    const wsApi: ApiDetail = {
+      target_id: 'ws-1',
+      parent_id: '0',
+      name: 'Echo WebSocket',
+      method: 'GET',
+      url: 'wss://echo.websocket.events',
+      protocol: 'websocket',
+      request: {
+        query: {
+          parameter: [
+            { key: 'token', value: 'xyz123', is_checked: 1, type: 'string' },
+          ],
+        },
+        header: {
+          parameter: [
+            { key: 'X-Client', value: 'MyPost', is_checked: 1, type: 'string' },
+          ],
+        },
+      },
+      websocket: {
+        protocols: 'v1.proto',
+        heartbeat: {
+          enabled: true,
+          interval: 20,
+          message: 'ping',
+        },
+        messageDraft: '{"msg":"hello"}',
+        messageMode: 'json',
+      },
+    };
+
+    const html = renderToString(
+      <FeedbackProvider>
+        <WebSocketWorkbench
+          api={wsApi}
+          onChange={() => {}}
+          onSave={() => {}}
+        />
+      </FeedbackProvider>
+    );
+
+    // Top-left: Parameters editing area
+    expect(html).toContain('Params');
+    expect(html).toContain('Headers');
+    expect(html).toContain('Protocols');
+    expect(html).toContain('心跳保活');
+
+    // Top-right: Message composer area
+    expect(html).toContain('消息发送');
+    expect(html).toContain('发送消息');
+
+    // Bottom: Response area referencing HTTP interface
+    expect(html).toContain('实时消息');
+    expect(html).toContain('握手与连接');
+    expect(html).toContain('未连接');
+    expect(html).toContain('仅匹配');
+  });
+
+  it('renders ApiWorkbench with cachedResponse intact on mount and tab restoration', () => {
+    const httpApi: ApiDetail = {
+      target_id: 'http-1',
+      parent_id: '0',
+      name: 'Get User Info',
+      method: 'GET',
+      url: '/api/v1/user/123',
+      request: {
+        query: { parameter: [] },
+        header: { parameter: [] },
+      },
+    };
+
+    const cachedRes: HttpResponseResult = {
+      statusCode: 200,
+      statusText: 'OK',
+      timeMs: 45,
+      sizeBytes: 1024,
+      headers: { 'content-type': 'application/json' },
+      cookies: [],
+      data: { user: 'Alice', role: 'admin' },
+      rawText: '{"user":"Alice","role":"admin"}',
+      logs: ['[RES] HTTP 200 OK'],
+    };
+
+    const html = renderToString(
+      <FeedbackProvider>
+        <ApiWorkbench
+          api={httpApi}
+          onChange={() => {}}
+          onSave={() => {}}
+          onSend={async () => cachedRes}
+          cachedResponse={cachedRes}
+          onResponseChange={() => {}}
+        />
+      </FeedbackProvider>
+    );
+
+    // Verify status code, time, and data from cached response are rendered
+    expect(html).toContain('200');
+    expect(html).toContain('OK');
+    expect(html).toContain('45');
+    expect(html).toContain('ms');
+    expect(html).toContain('Alice');
+  });
 });
+
 

@@ -386,11 +386,48 @@ function setupIPC() {
   );
 
   // Network Engine
+  const activeNetworkRequests = new Map<string, AbortController>();
+
   ipcMain.handle(
     'net:sendRequest',
-    (_e, api: ApiDetail, envVars: Record<string, string>, globalVars: Record<string, string>, preUrl?: string) =>
-      NetworkEngine.executeRequest(api, envVars, globalVars, preUrl)
+    async (
+      _e,
+      api: ApiDetail,
+      envVars: Record<string, string>,
+      globalVars: Record<string, string>,
+      preUrl?: string,
+      requestId?: string
+    ) => {
+      let abortController: AbortController | undefined;
+      if (requestId) {
+        abortController = new AbortController();
+        activeNetworkRequests.set(requestId, abortController);
+      }
+      try {
+        return await NetworkEngine.executeRequest(
+          api,
+          envVars,
+          globalVars,
+          preUrl,
+          abortController?.signal
+        );
+      } finally {
+        if (requestId) {
+          activeNetworkRequests.delete(requestId);
+        }
+      }
+    }
   );
+
+  ipcMain.handle('net:cancelRequest', (_e, requestId: string) => {
+    const controller = activeNetworkRequests.get(requestId);
+    if (controller) {
+      controller.abort();
+      activeNetworkRequests.delete(requestId);
+      return true;
+    }
+    return false;
+  });
   ipcMain.handle('net:fetchDocUrl', async (_e, rawUrl: string) => {
     let targetUrl = (rawUrl || '').trim();
     if (!targetUrl) throw new Error('URL 不能为空');

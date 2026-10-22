@@ -64,6 +64,7 @@ export const App: React.FC = () => {
   const [activeFolder, setActiveFolder] = useState<ApiTreeNode | null>(null);
   const [streamingTabs, setStreamingTabs] = useState<Record<string, ApiDetail>>({});
   const [folderDetails, setFolderDetails] = useState<Record<string, any>>({});
+  const [apiResponses, setApiResponses] = useState<Record<string, HttpResponseResult>>({});
   const apiDetailsCacheRef = React.useRef<Record<string, ApiDetail>>({});
 
   // Modals
@@ -123,6 +124,7 @@ export const App: React.FC = () => {
     setActiveDetail(null);
     setActiveFolder(null);
     setStreamingTabs({});
+    setApiResponses({});
     setCurrentProject(project);
   };
 
@@ -364,6 +366,12 @@ export const App: React.FC = () => {
     const nextTabs = tabs.filter((t) => t.id !== id);
     setTabs(nextTabs);
     setStreamingTabs((prev) => {
+      if (!prev[id]) return prev;
+      const copy = { ...prev };
+      delete copy[id];
+      return copy;
+    });
+    setApiResponses((prev) => {
       if (!prev[id]) return prev;
       const copy = { ...prev };
       delete copy[id];
@@ -621,6 +629,7 @@ export const App: React.FC = () => {
     }
     setTabs([target]);
     setStreamingTabs((prev) => (prev[id] ? { [id]: prev[id] } : {}));
+    setApiResponses((prev) => (prev[id] ? { [id]: prev[id] } : {}));
     if (activeTabId !== id) {
       handleSelectTab(id);
     }
@@ -638,6 +647,11 @@ export const App: React.FC = () => {
     const nextTabs = tabs.slice(0, idx + 1);
     setTabs(nextTabs);
     setStreamingTabs((prev) => {
+      const copy = { ...prev };
+      closedIds.forEach((cid) => delete copy[cid]);
+      return copy;
+    });
+    setApiResponses((prev) => {
       const copy = { ...prev };
       closedIds.forEach((cid) => delete copy[cid]);
       return copy;
@@ -663,6 +677,11 @@ export const App: React.FC = () => {
       closedIds.forEach((cid) => delete copy[cid]);
       return copy;
     });
+    setApiResponses((prev) => {
+      const copy = { ...prev };
+      closedIds.forEach((cid) => delete copy[cid]);
+      return copy;
+    });
     if (!nextTabs.some((t) => t.id === activeTabId)) {
       handleSelectTab(id);
     }
@@ -676,9 +695,10 @@ export const App: React.FC = () => {
     setActiveDetail(null);
     setActiveFolder(null);
     setStreamingTabs({});
+    setApiResponses({});
   };
 
-  const handleSendRequest = async (apiToSend: ApiDetail): Promise<HttpResponseResult> => {
+  const handleSendRequest = async (apiToSend: ApiDetail, requestId?: string): Promise<HttpResponseResult> => {
     const envVars: Record<string, string> = {};
     if (currentEnv?.list) {
       for (const item of currentEnv.list) {
@@ -754,7 +774,7 @@ export const App: React.FC = () => {
     };
 
     const preUrl = currentEnv?.pre_url || '';
-    return window.mypostAPI.sendRequest(finalApiToSend, envVars, globalVars, preUrl);
+    return window.mypostAPI.sendRequest(finalApiToSend, envVars, globalVars, preUrl, requestId);
   };
 
   const handleCreateApi = async (
@@ -1167,6 +1187,19 @@ export const App: React.FC = () => {
                       }}
                       isDirty={tabs.find((t) => t.id === activeDetail.target_id)?.isDirty}
                       onSend={handleSendRequest}
+                      cachedResponse={apiResponses[activeDetail.target_id] || null}
+                      onResponseChange={(res) => {
+                        const targetId = activeDetail.target_id;
+                        setApiResponses((prev) => {
+                          if (res === null) {
+                            if (!prev[targetId]) return prev;
+                            const copy = { ...prev };
+                            delete copy[targetId];
+                            return copy;
+                          }
+                          return { ...prev, [targetId]: res };
+                        });
+                      }}
                       preUrl={currentEnv?.pre_url || ''}
                       onExtractVariable={handleExtractVariable}
                       treeItems={treeItems}

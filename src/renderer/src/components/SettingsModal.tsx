@@ -76,7 +76,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   // Network preferences with persistence in localStorage
   const [timeoutMs, setTimeoutMs] = useState<number>(() => {
     const saved = localStorage.getItem('mypost:network:timeout');
-    return saved ? Number(saved) : 30000;
+    return saved !== null ? Number(saved) : 0;
   });
   const [followRedirects, setFollowRedirects] = useState<boolean>(() => {
     const saved = localStorage.getItem('mypost:network:followRedirects');
@@ -240,7 +240,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
 
             <div className="text-[10px] text-gray-500 text-center font-mono py-1">
-              v2026.10.22 Desktop
+              v2026.10.23 Desktop
             </div>
           </div>
 
@@ -575,16 +575,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <div className="flex items-center justify-between p-3.5 rounded-xl bg-subtle/40 border border-line">
                     <div>
                       <div className="font-semibold text-foreground">请求超时时间 (Timeout)</div>
-                      <div className="text-gray-400 text-[11px]">单个 API 请求等待响应的最大毫秒数（默认 30,000 ms）</div>
+                      <div className="text-gray-400 text-[11px]">单个 API 请求等待响应的最大毫秒数（填 0 为无超时限制，支持在响应区手动取消）</div>
                     </div>
                     <div className="flex items-center gap-1.5">
                       <input
                         type="number"
+                        min="0"
                         value={timeoutMs}
-                        onChange={(e) => handleTimeoutChange(Number(e.target.value) || 30000)}
+                        onChange={(e) => handleTimeoutChange(Math.max(0, Number(e.target.value) || 0))}
+                        placeholder="0"
                         className="w-24 bg-surface border border-line rounded px-2.5 py-1 text-xs font-mono text-center text-foreground focus:outline-none focus:border-accent"
                       />
-                      <span className="text-gray-400 text-[11px]">ms</span>
+                      <span className="text-gray-400 text-[11px]">{timeoutMs === 0 ? '不限制' : 'ms'}</span>
                     </div>
                   </div>
 
@@ -642,7 +644,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                 <div>
                   <h3 className="text-base font-extrabold text-foreground">mypost 桌面工作台</h3>
-                  <p className="text-xs text-gray-400 font-mono mt-0.5">Version 2026.10.22 (Release Build)</p>
+                  <p className="text-xs text-gray-400 font-mono mt-0.5">Version 2026.10.23 (Release Build)</p>
                 </div>
 
                 <p className="text-xs text-gray-300 max-w-md mx-auto leading-relaxed">

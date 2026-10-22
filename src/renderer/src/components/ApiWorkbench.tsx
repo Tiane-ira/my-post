@@ -39,7 +39,9 @@ interface ApiWorkbenchProps {
   onSaveAs?: () => void;
   onOpenShare?: () => void;
   isDirty?: boolean;
-  onSend: (api: ApiDetail) => Promise<HttpResponseResult>;
+  onSend: (api: ApiDetail, requestId?: string) => Promise<HttpResponseResult>;
+  cachedResponse?: HttpResponseResult | null;
+  onResponseChange?: (res: HttpResponseResult | null) => void;
   preUrl?: string;
   availableVars?: Record<string, VariableItem>;
   onExtractVariable?: (key: string, value: string) => void;
@@ -56,6 +58,8 @@ export const ApiWorkbench: React.FC<ApiWorkbenchProps> = ({
   onOpenShare,
   isDirty = false,
   onSend,
+  cachedResponse = null,
+  onResponseChange,
   preUrl = '',
   availableVars = {},
   onExtractVariable,
@@ -67,8 +71,10 @@ export const ApiWorkbench: React.FC<ApiWorkbenchProps> = ({
     'header' | 'query' | 'path' | 'body' | 'auth' | 'cookie' | 'pre' | 'tests'
   >('body');
   const [loading, setLoading] = useState(false);
-  const [response, setResponse] = useState<HttpResponseResult | null>(null);
+  const [response, setResponse] = useState<HttpResponseResult | null>(cachedResponse || null);
   const reqSeqRef = React.useRef(0);
+  const activeRequestIdRef = React.useRef<string | null>(null);
+  const reqStartTimeRef = React.useRef<number>(0);
   const [copiedCurl, setCopiedCurl] = useState(false);
   const [isVarMenuOpen, setIsVarMenuOpen] = useState(false);
   const [isVisualModalOpen, setIsVisualModalOpen] = useState(false);
@@ -115,10 +121,13 @@ export const ApiWorkbench: React.FC<ApiWorkbenchProps> = ({
     };
   }, [isDragging]);
 
-  // When switching between APIs, ensure previous response is completely cleared and pending sequences invalidated
+  const cachedResponseRef = React.useRef(cachedResponse);
+  cachedResponseRef.current = cachedResponse;
+
+  // When switching between APIs, restore cached response if present or reset
   useEffect(() => {
     reqSeqRef.current++;
-    setResponse(null);
+    setResponse(cachedResponseRef.current || null);
     setLoading(false);
   }, [api.target_id]);
 
@@ -241,20 +250,26 @@ export const ApiWorkbench: React.FC<ApiWorkbenchProps> = ({
     if (loading) return;
     reqSeqRef.current += 1;
     const thisReqId = reqSeqRef.current;
+    const requestId = `req_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    activeRequestIdRef.current = requestId;
+    reqStartTimeRef.current = performance.now();
+
     // Clear previous response immediately so only new request data is shown
     setResponse(null);
+    onResponseChange?.(null);
     setLoading(true);
     try {
-      const res = await onSend({ ...api, request: req });
+      const res = await onSend({ ...api, request: req }, requestId);
       if (reqSeqRef.current === thisReqId) {
         setResponse(res);
+        onResponseChange?.(res);
       }
     } catch (err: any) {
       if (reqSeqRef.current === thisReqId) {
-        setResponse({
+        const errorRes: HttpResponseResult = {
           statusCode: 0,
           statusText: 'Error',
-          timeMs: 0,
+          timeMs: Math.round(performance.now() - reqStartTimeRef.current),
           sizeBytes: 0,
           headers: {},
           cookies: [],
@@ -262,11 +277,47 @@ export const ApiWorkbench: React.FC<ApiWorkbenchProps> = ({
           rawText: '',
           error: err.message || '请求执行失败',
           logs: [`[${new Date().toLocaleTimeString()}] [ERROR] ${err.message || '请求执行失败'}`],
-        });
+        };
+        setResponse(errorRes);
+        onResponseChange?.(errorRes);
       }
     } finally {
       if (reqSeqRef.current === thisReqId) {
         setLoading(false);
+        activeRequestIdRef.current = null;
+      }
+    }
+  };
+
+  const handleCancel = async () => {
+    if (!loading) return;
+    const reqId = activeRequestIdRef.current;
+    reqSeqRef.current += 1;
+    setLoading(false);
+    activeRequestIdRef.current = null;
+    const durationMs = Math.round(performance.now() - reqStartTimeRef.current);
+    const cancelRes: HttpResponseResult = {
+      statusCode: 0,
+      statusText: 'Canceled',
+      timeMs: durationMs,
+      sizeBytes: 0,
+      headers: {},
+      cookies: [],
+      data: null,
+      rawText: '',
+      error: '请求已被手动取消',
+      logs: [
+        ...(response?.logs || []),
+        `[${new Date().toLocaleTimeString()}] [CANCEL] 用户手动取消了本次请求 (等待耗时: ${durationMs}ms)`,
+      ],
+    };
+    setResponse(cancelRes);
+    onResponseChange?.(cancelRes);
+    if (reqId && window.mypostAPI?.cancelRequest) {
+      try {
+        await window.mypostAPI.cancelRequest(reqId);
+      } catch (err) {
+        console.error('Failed to cancel request:', err);
       }
     }
   };
@@ -1322,6 +1373,7 @@ export const ApiWorkbench: React.FC<ApiWorkbenchProps> = ({
           response={response}
           loading={loading}
           activeApi={api}
+          onCancel={handleCancel}
         />
       </div>
       </div>

@@ -74,9 +74,12 @@ export const apiBridge = {
     api: ApiDetail,
     envVars: Record<string, string>,
     globalVars: Record<string, string>,
-    preUrl?: string
+    preUrl?: string,
+    requestId?: string
   ): Promise<HttpResponseResult> =>
-    ipcRenderer.invoke('net:sendRequest', api, envVars, globalVars, preUrl),
+    ipcRenderer.invoke('net:sendRequest', api, envVars, globalVars, preUrl, requestId),
+  cancelRequest: (requestId: string): Promise<boolean> =>
+    ipcRenderer.invoke('net:cancelRequest', requestId),
 
   // Network & Doc Fetching
   fetchDocUrl: (url: string): Promise<string> => ipcRenderer.invoke('net:fetchDocUrl', url),

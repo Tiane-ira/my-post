@@ -24,11 +24,14 @@ import {
   ArrowDownLeft,
   Info,
   Radio,
-  PanelRightClose,
-  PanelRightOpen,
   Code2,
   ListTree,
   X,
+  BookmarkPlus,
+  Globe,
+  Activity,
+  HardDrive,
+  FileText,
 } from 'lucide-react';
 import { ApiDetail, ApiTreeNode, KeyValueItem, WebSocketConfig } from '../../../common/types';
 import { ParamUtils } from '../../../common/paramUtils';
@@ -50,6 +53,16 @@ export interface WsMessageItem {
   isJson: boolean;
   systemType?: 'connect' | 'disconnect' | 'error' | 'info';
 }
+
+/**
+ * Format bytes into human-readable size string
+ */
+const formatSize = (bytes: number): string => {
+  if (!bytes || bytes <= 0) return '0 B';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+};
 
 /**
  * Text highlighter for search query matches
@@ -230,6 +243,7 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
 
   // UI & Filters
   const [activeTab, setActiveTab] = useState<'params' | 'headers' | 'protocols' | 'heartbeat'>('params');
+  const [activeResponseTab, setActiveResponseTab] = useState<'messages' | 'connection'>('messages');
   const [filterText, setFilterText] = useState('');
   const [filterOnly, setFilterOnly] = useState(false);
   const [activeMatchIndex, setActiveMatchIndex] = useState(0);
@@ -237,35 +251,35 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
   const [directionFilter, setDirectionFilter] = useState<'all' | 'send' | 'receive' | 'system'>('all');
   const [autoScroll, setAutoScroll] = useState(true);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [copiedUrl, setCopiedUrl] = useState(false);
 
-  // Response Timeline Visibility State (Toggled via single icon + tooltip button)
-  const [showTimeline, setShowTimeline] = useState<boolean>(true);
+  // Top/Bottom Vertical Split Resizer State (Upper Config & Sender vs Lower Response Stream)
+  const [upperHeightPercent, setUpperHeightPercent] = useState<number>(45);
+  const [isDraggingRow, setIsDraggingRow] = useState<boolean>(false);
+  const mainContainerRef = useRef<HTMLDivElement>(null);
 
-  // Left Panel Vertical Split Resizer State (handshake config vs composer)
-  const [configHeightPercent, setConfigHeightPercent] = useState<number>(45);
-  const [isDraggingV, setIsDraggingV] = useState<boolean>(false);
-  const leftPanelRef = useRef<HTMLDivElement>(null);
+  // Upper Area Horizontal Split Resizer State (Left Params vs Right Sender)
+  const [leftWidthPercent, setLeftWidthPercent] = useState<number>(50);
+  const [isDraggingCol, setIsDraggingCol] = useState<boolean>(false);
+  const upperContainerRef = useRef<HTMLDivElement>(null);
 
+  // Handle Vertical (Row) drag between upper and lower sections
   useEffect(() => {
-    if (!isDraggingV) return;
+    if (!isDraggingRow) return;
 
     const handleMouseMove = (e: MouseEvent) => {
-      if (!leftPanelRef.current) return;
-      const rect = leftPanelRef.current.getBoundingClientRect();
+      if (!mainContainerRef.current) return;
+      const rect = mainContainerRef.current.getBoundingClientRect();
       const relativeY = e.clientY - rect.top;
       const totalH = rect.height;
       if (totalH > 0) {
-        const minTopPercent = Math.max((110 / totalH) * 100, 15);
-        const maxTopPercent = Math.min(((totalH - 120 - 6) / totalH) * 100, 85);
-        if (maxTopPercent >= minTopPercent) {
-          const percent = Math.min(Math.max((relativeY / totalH) * 100, minTopPercent), maxTopPercent);
-          setConfigHeightPercent(percent);
-        }
+        const percent = Math.min(Math.max((relativeY / totalH) * 100, 15), 85);
+        setUpperHeightPercent(percent);
       }
     };
 
     const handleMouseUp = () => {
-      setIsDraggingV(false);
+      setIsDraggingRow(false);
     };
 
     document.body.style.cursor = 'row-resize';
@@ -279,7 +293,49 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [isDraggingV]);
+  }, [isDraggingRow]);
+
+  // Handle Horizontal (Column) drag between left params and right sender in upper section
+  useEffect(() => {
+    if (!isDraggingCol) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!upperContainerRef.current) return;
+      const rect = upperContainerRef.current.getBoundingClientRect();
+      const relativeX = e.clientX - rect.left;
+      const totalW = rect.width;
+      if (totalW > 0) {
+        const percent = Math.min(Math.max((relativeX / totalW) * 100, 20), 80);
+        setLeftWidthPercent(percent);
+      }
+    };
+
+    const handleMouseUp = () => {
+      setIsDraggingCol(false);
+    };
+
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDraggingCol]);
+
+  // Parameter counts for tab badges
+  const paramsCount = useMemo(
+    () => (api.request?.query?.parameter || []).filter((p) => p.is_checked === 1 && p.key).length,
+    [api.request?.query?.parameter]
+  );
+  const headersCount = useMemo(
+    () => (api.request?.header?.parameter || []).filter((h) => h.is_checked === 1 && h.key).length,
+    [api.request?.header?.parameter]
+  );
 
   const wsRef = useRef<WebSocket | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -734,6 +790,28 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
             className="bg-transparent border-none text-sm font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-accent px-2 py-0.5 rounded flex-1"
           />
         </div>
+
+        {/* Right Action Icons (Save As, Share) */}
+        <div className="flex items-center gap-1.5 text-xs">
+          {onSaveAs && (
+            <button
+              onClick={onSaveAs}
+              className="p-1.5 hover:bg-hover rounded text-gray-400 hover:text-foreground transition flex items-center gap-1"
+              title="另存为 (Save As)"
+            >
+              <BookmarkPlus className="w-4 h-4" />
+            </button>
+          )}
+          {onOpenShare && (
+            <button
+              onClick={onOpenShare}
+              className="p-1.5 hover:bg-hover rounded text-gray-400 hover:text-foreground transition flex items-center gap-1"
+              title="分享接口"
+            >
+              <Share2 className="w-4 h-4" />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* URL & Connect Bar (Layout & styling identical to HTTP ApiWorkbench) */}
@@ -775,7 +853,7 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
               ? 'bg-rose-500 hover:bg-rose-600 text-white'
               : status === 'connecting'
               ? 'bg-accent hover:bg-accent-hover text-white'
-              : 'bg-accent hover:bg-accent-hover text-white shadow-md shadow-orange-500/10'
+              : 'bg-accent hover:bg-accent-hover text-white shadow-md shadow-accent/10'
           }`}
           title="连接 WebSocket (Ctrl+Enter)"
         >
@@ -819,84 +897,92 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
           )}
         </button>
 
-
-        {/* Toggle Response Message Stream */}
-        <button
-          type="button"
-          onClick={() => setShowTimeline(!showTimeline)}
-          className="h-9 px-3 rounded-lg border border-line bg-transparent hover:bg-hover text-gray-300 hover:text-foreground text-xs flex items-center gap-1.5 transition shrink-0"
-          title={showTimeline ? "隐藏消息流" : "展示消息流"}
-        >
-          {showTimeline ? <PanelRightClose className="w-3.5 h-3.5" /> : <PanelRightOpen className="w-3.5 h-3.5" />}
-        </button>
       </div>
 
-      {/* Main Split Body: Left Handshake Config & Message Composer, Right Live Feed */}
-      <div className="flex-1 flex min-h-0 overflow-hidden relative">
-        {/* Left Panel: Handshake Config & Message Sender (Auto fills 100% width when timeline is hidden) */}
+      {/* Resizable Upper (Params & Send) & Lower (Response Stream) Split Workspace */}
+      <div
+        ref={mainContainerRef}
+        className={`flex-1 flex flex-col overflow-hidden min-h-0 relative ${
+          isDraggingRow || isDraggingCol ? 'select-none' : ''
+        }`}
+      >
+        {/* Upper Area: Parameters (Left) and Message Composer (Right) */}
         <div
-          ref={leftPanelRef}
-          className={`flex flex-col min-h-0 bg-sidebar overflow-hidden transition-all duration-200 relative ${
-            showTimeline
-              ? 'w-[480px] min-w-[340px] max-w-[50%] border-r border-line shrink-0'
-              : 'flex-1 w-full'
-          } ${isDraggingV ? 'select-none' : ''}`}
+          ref={upperContainerRef}
+          style={{ height: `${upperHeightPercent}%` }}
+          className="flex border-b border-line bg-surface overflow-hidden min-h-[140px]"
         >
-          {/* Top Block: Handshake Configuration (resizable height) */}
+          {/* Top-Left: Parameters Editing Area */}
           <div
-            style={{ height: `${configHeightPercent}%` }}
-            className="flex flex-col min-h-[110px] shrink-0 overflow-hidden"
+            style={{ width: `${leftWidthPercent}%` }}
+            className="flex flex-col min-w-[260px] border-r border-line overflow-hidden bg-surface"
           >
-            {/* Config Tabs Header */}
-            <div className="flex items-center border-b border-line px-3 bg-subtle/30 shrink-0">
+            {/* Tabs Header */}
+            <div className="h-9 px-3 bg-subtle border-b border-line flex items-center gap-1 text-xs select-none overflow-x-auto shrink-0">
               <button
                 type="button"
                 onClick={() => setActiveTab('params')}
-                className={`px-3 py-1.5 text-xs font-medium border-b-2 transition ${
+                className={`px-3 py-1 rounded-md transition font-medium flex items-center gap-1 ${
                   activeTab === 'params'
-                    ? 'border-teal-400 text-teal-400'
-                    : 'border-transparent text-gray-400 hover:text-gray-200'
+                    ? 'bg-accent/20 text-accent font-semibold'
+                    : 'text-gray-400 hover:text-foreground'
                 }`}
               >
-                Params {api.request?.query?.parameter?.length ? `(${api.request.query.parameter.length})` : ''}
+                <span>Params</span>
+                {paramsCount > 0 && (
+                  <span className="ml-1 px-1 rounded-full text-[10px] bg-subtle text-accent">
+                    {paramsCount}
+                  </span>
+                )}
               </button>
               <button
                 type="button"
                 onClick={() => setActiveTab('headers')}
-                className={`px-3 py-1.5 text-xs font-medium border-b-2 transition ${
+                className={`px-3 py-1 rounded-md transition font-medium flex items-center gap-1 ${
                   activeTab === 'headers'
-                    ? 'border-teal-400 text-teal-400'
-                    : 'border-transparent text-gray-400 hover:text-gray-200'
+                    ? 'bg-accent/20 text-accent font-semibold'
+                    : 'text-gray-400 hover:text-foreground'
                 }`}
               >
-                Headers {api.request?.header?.parameter?.length ? `(${api.request.header.parameter.length})` : ''}
+                <span>Headers</span>
+                {headersCount > 0 && (
+                  <span className="ml-1 px-1 rounded-full text-[10px] bg-subtle text-accent">
+                    {headersCount}
+                  </span>
+                )}
               </button>
               <button
                 type="button"
                 onClick={() => setActiveTab('protocols')}
-                className={`px-3 py-1.5 text-xs font-medium border-b-2 transition ${
+                className={`px-3 py-1 rounded-md transition font-medium flex items-center gap-1 ${
                   activeTab === 'protocols'
-                    ? 'border-teal-400 text-teal-400'
-                    : 'border-transparent text-gray-400 hover:text-gray-200'
+                    ? 'bg-accent/20 text-accent font-semibold'
+                    : 'text-gray-400 hover:text-foreground'
                 }`}
               >
-                Protocols
+                <span>Protocols</span>
+                {protocolsInput.trim().length > 0 && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-accent ml-0.5" />
+                )}
               </button>
               <button
                 type="button"
                 onClick={() => setActiveTab('heartbeat')}
-                className={`px-3 py-1.5 text-xs font-medium border-b-2 transition ${
+                className={`px-3 py-1 rounded-md transition font-medium flex items-center gap-1 ${
                   activeTab === 'heartbeat'
-                    ? 'border-teal-400 text-teal-400'
-                    : 'border-transparent text-gray-400 hover:text-gray-200'
+                    ? 'bg-accent/20 text-accent font-semibold'
+                    : 'text-gray-400 hover:text-foreground'
                 }`}
               >
-                心跳保活 {heartbeatEnabled ? '🟢' : ''}
+                <span>心跳保活</span>
+                {heartbeatEnabled && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse ml-0.5" />
+                )}
               </button>
             </div>
 
             {/* Config Tab Body */}
-            <div className="flex-1 p-2 overflow-y-auto">
+            <div className="flex-1 p-3 overflow-y-auto min-h-0">
               {activeTab === 'params' && (
                 <KeyValueTable
                   items={api.request?.query?.parameter || []}
@@ -937,7 +1023,7 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
               )}
 
               {activeTab === 'protocols' && (
-                <div className="space-y-2 p-2">
+                <div className="space-y-2 p-1">
                   <span className="text-xs text-gray-400">
                     Sec-WebSocket-Protocol 子协议列表（多个子协议请用英文逗号分隔）：
                   </span>
@@ -946,7 +1032,7 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
                     value={protocolsInput}
                     onChange={(e) => handleProtocolsChange(e.target.value)}
                     placeholder="graphql-transport-ws, v1.proto"
-                    className="w-full bg-subtle border border-line rounded px-2.5 py-1.5 text-xs text-foreground focus:outline-none focus:border-teal-500 font-mono"
+                    className="w-full bg-subtle border border-line rounded px-2.5 py-1.5 text-xs text-foreground focus:outline-none focus:border-accent font-mono"
                   />
                 </div>
               )}
@@ -958,120 +1044,141 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
                       type="checkbox"
                       checked={heartbeatEnabled}
                       onChange={(e) => handleHeartbeatToggle(e.target.checked)}
-                      className="rounded border-line text-teal-500 focus:ring-0"
+                      className="rounded border-line text-accent focus:ring-0"
                     />
                     <span className="text-gray-200 font-medium">启用定时心跳保活包 (Heartbeat Ping)</span>
                   </label>
 
                   {heartbeatEnabled && (
-                        <div className="space-y-2.5 pl-6 pt-1">
-                          <div className="flex items-center gap-2">
-                            <span className="text-gray-400 w-24 shrink-0">发送间隔 (秒):</span>
-                            <input
-                              type="number"
-                              min="1"
-                              max="3600"
-                              value={heartbeatInterval}
-                              onChange={(e) => handleHeartbeatIntervalChange(Number(e.target.value) || 1)}
-                              className="w-24 bg-subtle border border-line rounded px-2.5 py-1 text-xs text-foreground focus:outline-none focus:border-teal-500"
-                            />
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-gray-400 w-24 shrink-0">心跳载荷:</span>
-                            <input
-                              type="text"
-                              value={heartbeatMsg}
-                              onChange={(e) => handleHeartbeatMsgChange(e.target.value)}
-                              placeholder="ping 或 {type: 'ping'}"
-                              className="flex-1 bg-subtle border border-line rounded px-2.5 py-1 text-xs text-foreground focus:outline-none focus:border-teal-500 font-mono"
-                            />
-                          </div>
-                          <div className="text-[11px] text-teal-400/80 bg-teal-500/10 border border-teal-500/20 rounded p-2 flex items-center gap-1.5">
-                            <Info className="w-3.5 h-3.5 shrink-0" />
-                            <span>心跳保活配置会自动保存，连接成功后将按指定周期定时发送。</span>
-                          </div>
-                        </div>
-                      )}
+                    <div className="space-y-2.5 pl-6 pt-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-gray-400 w-24 shrink-0">发送间隔 (秒):</span>
+                        <input
+                          type="number"
+                          min="1"
+                          max="3600"
+                          value={heartbeatInterval}
+                          onChange={(e) => handleHeartbeatIntervalChange(Number(e.target.value) || 1)}
+                          className="w-24 bg-subtle border border-line rounded px-2.5 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
+                        />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-gray-400 w-24 shrink-0">心跳载荷:</span>
+                        <input
+                          type="text"
+                          value={heartbeatMsg}
+                          onChange={(e) => handleHeartbeatMsgChange(e.target.value)}
+                          placeholder="ping 或 {type: 'ping'}"
+                          className="flex-1 bg-subtle border border-line rounded px-2.5 py-1 text-xs text-foreground focus:outline-none focus:border-accent font-mono"
+                        />
+                      </div>
+                      <div className="text-[11px] text-accent/80 bg-accent/10 border border-accent/20 rounded p-2 flex items-center gap-1.5">
+                        <Info className="w-3.5 h-3.5 shrink-0" />
+                        <span>心跳保活配置会自动保存，连接成功后将按指定周期定时发送。</span>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
           </div>
 
-          {/* Vertical Drag Resizer Bar between Config and Message Composer */}
+          {/* Horizontal Drag Resizer Bar between Params (Left) and Sender (Right) */}
           <div
             onMouseDown={(e) => {
               e.preventDefault();
-              setIsDraggingV(true);
+              setIsDraggingCol(true);
             }}
-            onDoubleClick={() => setConfigHeightPercent(45)}
-            className={`h-1.5 hover:h-2 bg-subtle hover:bg-teal-500/40 border-y border-line cursor-row-resize transition-all flex items-center justify-center select-none group z-10 shrink-0 ${
-              isDraggingV ? 'bg-teal-500/50 h-2' : ''
+            onDoubleClick={() => setLeftWidthPercent(50)}
+            className={`w-1.5 hover:w-2 bg-subtle hover:bg-accent/40 border-x border-line cursor-col-resize transition-all flex items-center justify-center select-none group z-10 shrink-0 ${
+              isDraggingCol ? 'bg-accent/50 w-2' : ''
             }`}
-            title="上下拖动调整握手配置与消息发送区域高度 (双击恢复默认 45%)"
+            title="左右拖动调整参数编辑区与消息发送区宽度 (双击恢复 50%)"
           >
-            <div className="w-8 h-1 rounded-full bg-gray-400/40 group-hover:bg-teal-400 transition" />
+            <div className="w-0.5 h-8 rounded-full bg-gray-400/40 group-hover:bg-accent transition" />
           </div>
 
-          {/* Bottom Block: Message Composer Section (resizable height) */}
+          {/* Top-Right: Message Composer Section */}
           <div
-            style={{ height: `calc(${100 - configHeightPercent}% - 6px)` }}
-            className="flex-1 flex flex-col min-h-[120px] p-3 bg-canvas/30 overflow-hidden"
+            style={{ width: `calc(${100 - leftWidthPercent}% - 6px)` }}
+            className="flex-1 flex flex-col min-w-[260px] bg-surface overflow-hidden"
           >
-            <div className="flex items-center justify-between mb-2">
+            {/* Composer Header Bar */}
+            <div className="h-9 px-3 bg-subtle border-b border-line flex items-center justify-between text-xs select-none shrink-0">
               <div className="flex items-center gap-2">
-                <span className="text-xs font-semibold text-foreground">发送消息</span>
+                <span className="font-semibold text-foreground flex items-center gap-1.5">
+                  <Send className="w-3.5 h-3.5 text-accent" />
+                  <span>消息发送</span>
+                </span>
 
-                {/* Mode Select Dropdown (Themed styled with proper text & background) */}
+                {/* Mode Select Dropdown */}
                 <div className="relative shrink-0 flex items-center">
                   <select
                     value={messageMode}
                     onChange={(e) => handleMessageModeChange(e.target.value as 'json' | 'text')}
-                    className="appearance-none bg-subtle hover:bg-hover border border-line text-foreground font-mono text-xs font-semibold pl-2.5 pr-6 py-1 rounded cursor-pointer focus:outline-none focus:border-teal-500 transition shadow-sm"
-                    title="选择消息格式"
+                    className="appearance-none bg-surface hover:bg-hover border border-line text-foreground font-mono text-[11px] font-semibold pl-2 pr-5 py-0.5 rounded cursor-pointer focus:outline-none focus:border-accent transition shadow-sm"
+                    title="选择消息格式 (JSON / Text)"
                   >
-                    <option value="json" className="bg-surface text-foreground font-mono font-medium">
+                    <option value="json" className="bg-surface text-foreground font-mono">
                       JSON
                     </option>
-                    <option value="text" className="bg-surface text-foreground font-mono font-medium">
+                    <option value="text" className="bg-surface text-foreground font-mono">
                       Text
                     </option>
                   </select>
-                  <ChevronDown className="w-3 h-3 text-gray-400 absolute right-1.5 pointer-events-none" />
+                  <ChevronDown className="w-3 h-3 text-gray-400 absolute right-1 pointer-events-none" />
                 </div>
               </div>
+
+              {/* Format JSON button if JSON mode */}
+              {messageMode === 'json' && (
+                <button
+                  type="button"
+                  onClick={handleFormatJson}
+                  className="h-6 px-2 rounded bg-surface hover:bg-hover border border-line text-gray-300 hover:text-white text-[11px] flex items-center gap-1 transition"
+                  title="美化 JSON 格式"
+                >
+                  <Sparkles className="w-3 h-3 text-amber-400" />
+                  <span>美化</span>
+                </button>
+              )}
             </div>
 
-            {messageMode === 'json' ? (
-              <div className="flex-1 min-h-[140px] border border-line rounded-lg overflow-hidden flex flex-col">
-                <JsonCodeEditor
+            {/* Composer Editor Area */}
+            <div className="flex-1 min-h-0 p-2.5 overflow-hidden flex flex-col">
+              {messageMode === 'json' ? (
+                <div className="flex-1 min-h-[100px] border border-line rounded-lg overflow-hidden flex flex-col">
+                  <JsonCodeEditor
+                    value={inputMessage}
+                    onChange={handleInputMessageChange}
+                    placeholder={'{\n  "action": "ping"\n}'}
+                    onKeyDown={(e) => {
+                      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                        e.preventDefault();
+                        handleSendMessage();
+                      }
+                    }}
+                    className="h-full border-none rounded-none"
+                  />
+                </div>
+              ) : (
+                <textarea
                   value={inputMessage}
-                  onChange={handleInputMessageChange}
-                  placeholder={'{\n  "action": "ping"\n}'}
+                  onChange={(e) => handleInputMessageChange(e.target.value)}
                   onKeyDown={(e) => {
                     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
                       e.preventDefault();
                       handleSendMessage();
                     }
                   }}
-                  className="h-full border-none rounded-none"
+                  placeholder="输入要发送的 WebSocket 文本或 JSON 内容... (支持 Ctrl+Enter 快捷发送)"
+                  className="flex-1 w-full bg-subtle border border-line rounded-lg p-2.5 text-xs font-mono text-foreground placeholder-gray-500 focus:outline-none focus:border-accent resize-none leading-relaxed shadow-inner"
                 />
-              </div>
-            ) : (
-              <textarea
-                value={inputMessage}
-                onChange={(e) => handleInputMessageChange(e.target.value)}
-                onKeyDown={(e) => {
-                  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-                    e.preventDefault();
-                    handleSendMessage();
-                  }
-                }}
-                placeholder="输入要发送的 WebSocket 文本或 JSON 内容... (支持 Ctrl+Enter 快捷发送)"
-                className="flex-1 w-full bg-subtle border border-line rounded-lg p-2.5 text-xs font-mono text-foreground placeholder-gray-500 focus:outline-none focus:border-teal-500 resize-none leading-relaxed shadow-inner"
-              />
-            )}
+              )}
+            </div>
 
-            <div className="flex items-center justify-between mt-2.5">
+            {/* Composer Footer Bar */}
+            <div className="px-3 py-1.5 border-t border-line/60 bg-subtle/30 flex items-center justify-between shrink-0 select-none">
               <span className="text-[11px] text-gray-500 font-mono">
                 快捷键: <kbd className="px-1 py-0.5 bg-subtle rounded border border-line text-[10px]">Ctrl</kbd> + <kbd className="px-1 py-0.5 bg-subtle rounded border border-line text-[10px]">Enter</kbd>
               </span>
@@ -1080,7 +1187,7 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
                 type="button"
                 onClick={handleSendMessage}
                 disabled={status !== 'connected'}
-                className="h-8 px-4 rounded-md bg-teal-500 hover:bg-teal-600 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-semibold flex items-center gap-1.5 transition shadow-sm"
+                className="h-7 px-3.5 rounded-md bg-accent hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-semibold flex items-center gap-1.5 transition shadow-sm shadow-accent/10"
               >
                 <Send className="w-3.5 h-3.5" />
                 <span>发送消息</span>
@@ -1089,335 +1196,604 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
           </div>
         </div>
 
-        {/* Right Panel: Live WebSocket Message Timeline */}
-        {showTimeline && (
-          <div className="flex-1 flex flex-col min-h-0 bg-canvas overflow-hidden min-w-[280px]">
-            {/* Stream Toolbar */}
-            <div className="h-10 border-b border-line px-3 flex items-center justify-between gap-2.5 bg-subtle/30 shrink-0">
-              <div className="flex items-center gap-2 flex-1 min-w-0">
-                {/* Search Box with match navigation & clear */}
-                <div className="relative flex items-center w-52 sm:w-64 shrink-0">
-                  <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 pointer-events-none" />
-                  <input
-                    ref={searchInputRef}
-                    type="text"
-                    value={filterText}
-                    onChange={(e) => {
-                      setFilterText(e.target.value);
-                      setActiveMatchIndex(0);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        if (e.shiftKey) {
-                          handlePrevMatch();
-                        } else {
-                          handleNextMatch();
-                        }
-                      } else if (e.key === 'Escape') {
-                        setFilterText('');
-                        setActiveMatchIndex(0);
-                      }
-                    }}
-                    placeholder="搜索消息、时间、序号..."
-                    className="w-full bg-subtle border border-line focus:border-teal-500 rounded-lg pl-8 pr-16 py-1 text-xs text-foreground placeholder-gray-500 focus:outline-none transition shadow-inner font-sans"
-                  />
+        {/* Vertical Drag Resizer Bar between Upper (Params/Sender) and Lower (Response Area) */}
+        <div
+          onMouseDown={(e) => {
+            e.preventDefault();
+            setIsDraggingRow(true);
+          }}
+          onDoubleClick={() => setUpperHeightPercent(45)}
+          className={`h-1.5 hover:h-2 bg-subtle hover:bg-accent/40 border-y border-line cursor-row-resize transition-all flex items-center justify-center select-none group z-10 shrink-0 ${
+            isDraggingRow ? 'bg-accent/50 h-2' : ''
+          }`}
+          title="上下拖动调整参数与响应区域高度 (双击恢复 45%)"
+        >
+          <div className="w-8 h-1 rounded-full bg-gray-400/40 group-hover:bg-accent transition" />
+        </div>
 
-                  {/* Match counter & navigation controls inside search box */}
-                  {filterText.trim() && (
-                    <div className="absolute right-1.5 flex items-center gap-0.5">
-                      <span className="text-[10px] font-mono text-gray-400 px-1 select-none">
-                        {matchedMessageIds.length > 0 ? `${activeMatchIndex + 1}/${matchedMessageIds.length}` : '0/0'}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={handlePrevMatch}
-                        disabled={matchedMessageIds.length === 0}
-                        className="p-0.5 hover:bg-hover rounded text-gray-400 hover:text-white disabled:opacity-30 transition"
-                        title="上一个匹配 (Shift+Enter)"
-                      >
-                        <ChevronUp className="w-3 h-3" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleNextMatch}
-                        disabled={matchedMessageIds.length === 0}
-                        className="p-0.5 hover:bg-hover rounded text-gray-400 hover:text-white disabled:opacity-30 transition"
-                        title="下一个匹配 (Enter)"
-                      >
-                        <ChevronDown className="w-3 h-3" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setFilterText('');
-                          setActiveMatchIndex(0);
-                        }}
-                        className="p-0.5 hover:bg-hover rounded text-gray-400 hover:text-white transition"
-                        title="清空搜索"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
-                    </div>
-                  )}
-                </div>
+        {/* Lower Area: Response Stream (Full Width, Styled like HTTP ResponseViewer) */}
+        <div
+          style={{ height: `calc(${100 - upperHeightPercent}% - 6px)` }}
+          className="flex-1 flex flex-col min-h-[140px] bg-canvas overflow-hidden"
+        >
+          {/* Primary Response Header Bar (Matches HTTP interface ResponseViewer header) */}
+          <div className="h-10 px-3 bg-surface border-b border-line flex items-center justify-between text-xs select-none shrink-0">
+            {/* Left Tabs (实时消息, 握手与连接) */}
+            <div className="flex items-center gap-1 overflow-x-auto">
+              <button
+                type="button"
+                onClick={() => setActiveResponseTab('messages')}
+                className={`px-3 py-1.5 rounded-md transition font-medium text-xs whitespace-nowrap flex items-center gap-1.5 ${
+                  activeResponseTab === 'messages'
+                    ? 'bg-accent/15 text-accent font-semibold'
+                    : 'text-gray-400 hover:text-gray-200'
+                }`}
+              >
+                <span>实时消息</span>
+                {messages.length > 0 && (
+                  <span className="text-[10px] text-gray-400">({messages.length})</span>
+                )}
+              </button>
 
-                {/* Filter Only Toggle */}
-                <button
-                  type="button"
-                  onClick={() => setFilterOnly(!filterOnly)}
-                  className={`h-7 px-2 rounded-md border text-xs flex items-center gap-1 transition shrink-0 select-none ${
-                    filterOnly
-                      ? 'bg-teal-500/20 border-teal-500/40 text-teal-300 font-medium'
-                      : 'bg-subtle hover:bg-hover border-line text-gray-400 hover:text-gray-200'
-                  }`}
-                  title={filterOnly ? "当前为仅展示匹配项模式，点击切换回全量展示" : "点击仅展示匹配项"}
-                >
-                  <Filter className="w-3 h-3" />
-                  <span>仅匹配</span>
-                </button>
-
-                {/* Compact Direction Segmented Buttons */}
-                <div className="flex items-center bg-subtle border border-line rounded-md p-0.5 shrink-0 text-xs select-none">
-                  <button
-                    type="button"
-                    onClick={() => setDirectionFilter('all')}
-                    className={`px-2 py-0.5 rounded text-[11px] font-medium transition ${
-                      directionFilter === 'all'
-                        ? 'bg-surface text-foreground shadow-sm'
-                        : 'text-gray-400 hover:text-gray-200'
-                    }`}
-                  >
-                    全部 ({totalDataCount})
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setDirectionFilter('send')}
-                    className={`px-2 py-0.5 rounded text-[11px] font-medium transition ${
-                      directionFilter === 'send'
-                        ? 'bg-emerald-500/20 text-emerald-300 font-semibold shadow-sm'
-                        : 'text-gray-400 hover:text-gray-200'
-                    }`}
-                  >
-                    发送 ({sentCount})
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setDirectionFilter('receive')}
-                    className={`px-2 py-0.5 rounded text-[11px] font-medium transition ${
-                      directionFilter === 'receive'
-                        ? 'bg-sky-500/20 text-sky-300 font-semibold shadow-sm'
-                        : 'text-gray-400 hover:text-gray-200'
-                    }`}
-                  >
-                    接收 ({recvCount})
-                  </button>
-                  {systemCount > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setDirectionFilter('system')}
-                      className={`px-2 py-0.5 rounded text-[11px] font-medium transition ${
-                        directionFilter === 'system'
-                          ? 'bg-surface text-gray-200 shadow-sm'
-                          : 'text-gray-500 hover:text-gray-300'
-                      }`}
-                    >
-                      系统 ({systemCount})
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {/* Action Buttons with Icon + Tooltips */}
-              <div className="flex items-center gap-1.5 shrink-0">
-                <Tooltip content={autoScroll ? "暂停滚动" : "自动滚动"}>
-                  <button
-                    type="button"
-                    onClick={() => setAutoScroll(!autoScroll)}
-                    className={`p-1.5 rounded border text-xs flex items-center transition ${
-                      autoScroll
-                        ? 'bg-teal-500/15 border-teal-500/30 text-teal-400 hover:bg-teal-500/25'
-                        : 'bg-subtle border-line text-gray-400 hover:text-white'
-                    }`}
-                  >
-                    <ArrowDownToLine className="w-3.5 h-3.5" />
-                  </button>
-                </Tooltip>
-
-                <Tooltip content="导出记录">
-                  <button
-                    type="button"
-                    onClick={handleExportMessages}
-                    disabled={messages.length === 0}
-                    className="p-1.5 rounded bg-subtle hover:bg-hover border border-line text-gray-300 hover:text-white text-xs flex items-center disabled:opacity-40 transition"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                  </button>
-                </Tooltip>
-
-                <Tooltip content="清空消息">
-                  <button
-                    type="button"
-                    onClick={handleClearMessages}
-                    disabled={messages.length === 0}
-                    className="p-1.5 rounded bg-subtle hover:bg-rose-500/20 border border-line text-gray-300 hover:text-rose-400 text-xs flex items-center disabled:opacity-40 transition"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </Tooltip>
-              </div>
+              <button
+                type="button"
+                onClick={() => setActiveResponseTab('connection')}
+                className={`px-3 py-1.5 rounded-md transition font-medium text-xs whitespace-nowrap flex items-center gap-1.5 ${
+                  activeResponseTab === 'connection'
+                    ? 'bg-accent/15 text-accent font-semibold'
+                    : 'text-gray-400 hover:text-gray-200'
+                }`}
+              >
+                <Activity className="w-3.5 h-3.5" />
+                <span>握手与连接</span>
+                {status === 'connected' && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                )}
+              </button>
             </div>
 
-            {/* Timeline Message Feed */}
-            <div ref={scrollContainerRef} className="flex-1 overflow-y-auto p-3 space-y-2.5">
-              {visibleMessages.length === 0 ? (
-                <div className="h-full flex flex-col items-center justify-center text-gray-500 gap-2 py-12">
-                  <Zap className="w-10 h-10 text-gray-600 stroke-1" />
-                  <div className="text-xs font-medium text-gray-400">
-                    {filterText.trim() && filterOnly
-                      ? '没有找到匹配搜索条件的消息'
-                      : status === 'connected'
-                      ? '已建立 WebSocket 连接，可以在左侧编写并发送消息'
-                      : '暂无消息记录，请在顶部输入 ws:// 或 wss:// 地址并点击“连接”'}
+            {/* Right Status Badge & Summary Metrics (Consistent with HTTP interface) */}
+            <div className="flex items-center gap-3 text-xs">
+              {/* Traffic Counts */}
+              <div className="hidden sm:flex items-center gap-2 text-gray-400 text-xs">
+                <span className="flex items-center gap-1 font-mono text-[11px]" title="发送消息帧数">
+                  <ArrowUpRight className="w-3 h-3 text-emerald-400" />
+                  <span>{sentCount}</span>
+                </span>
+                <span className="flex items-center gap-1 font-mono text-[11px]" title="接收消息帧数">
+                  <ArrowDownLeft className="w-3 h-3 text-sky-400" />
+                  <span>{recvCount}</span>
+                </span>
+                <span className="flex items-center gap-1 font-mono text-[11px]" title="累计传输字节数">
+                  <HardDrive className="w-3 h-3 text-gray-500" />
+                  <span>{formatSize(cumulativeStats.total > 0 ? messages.reduce((acc, m) => acc + (m.size || 0), 0) : 0)}</span>
+                </span>
+              </div>
+
+              {/* Status Badge */}
+              {status === 'connected' ? (
+                <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 font-bold border border-emerald-500/30 text-xs">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  <span>已连接 ({elapsedDuration || '00:00'})</span>
+                </span>
+              ) : status === 'connecting' ? (
+                <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-500/15 text-amber-400 font-bold border border-amber-500/30 text-xs">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping" />
+                  <span>连接中...</span>
+                </span>
+              ) : status === 'error' ? (
+                <span
+                  className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-rose-500/20 text-rose-300 font-bold border border-rose-500/30 text-xs"
+                  title={errorMessage || '连接异常'}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
+                  <span>{errorMessage ? (errorMessage.length > 15 ? errorMessage.slice(0, 15) + '...' : errorMessage) : '连接异常'}</span>
+                </span>
+              ) : (
+                <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-subtle text-gray-400 border border-line text-xs">
+                  <span className="w-1.5 h-1.5 rounded-full bg-gray-500" />
+                  <span>未连接</span>
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Tab 1: 实时消息 (Messages Timeline) */}
+          {activeResponseTab === 'messages' && (
+            <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+              {/* Message Filter Toolbar */}
+              <div className="h-9 px-3 border-b border-line bg-subtle/30 flex items-center justify-between gap-2 shrink-0 select-none overflow-x-auto min-w-0">
+                <div className="flex items-center gap-2 min-w-0 flex-1">
+                  {/* Search Box */}
+                  <div className="relative flex items-center w-44 sm:w-56 shrink-0">
+                    <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2 pointer-events-none" />
+                    <input
+                      ref={searchInputRef}
+                      type="text"
+                      value={filterText}
+                      onChange={(e) => {
+                        setFilterText(e.target.value);
+                        setActiveMatchIndex(0);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          if (e.shiftKey) {
+                            handlePrevMatch();
+                          } else {
+                            handleNextMatch();
+                          }
+                        } else if (e.key === 'Escape') {
+                          setFilterText('');
+                          setActiveMatchIndex(0);
+                        }
+                      }}
+                      placeholder="搜索消息内容..."
+                      className="w-full bg-surface border border-line focus:border-accent rounded-md pl-7 pr-16 py-1 text-xs text-foreground placeholder-gray-500 focus:outline-none transition shadow-inner font-sans h-7"
+                    />
+
+                    {/* Match counter & navigation controls */}
+                    {filterText.trim() && (
+                      <div className="absolute right-1 flex items-center gap-0.5">
+                        <span className="text-[10px] font-mono text-gray-400 px-0.5 select-none">
+                          {matchedMessageIds.length > 0 ? `${activeMatchIndex + 1}/${matchedMessageIds.length}` : '0/0'}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={handlePrevMatch}
+                          disabled={matchedMessageIds.length === 0}
+                          className="p-0.5 hover:bg-hover rounded text-gray-400 hover:text-white disabled:opacity-30 transition"
+                          title="上一个匹配 (Shift+Enter)"
+                        >
+                          <ChevronUp className="w-3 h-3" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleNextMatch}
+                          disabled={matchedMessageIds.length === 0}
+                          className="p-0.5 hover:bg-hover rounded text-gray-400 hover:text-white disabled:opacity-30 transition"
+                          title="下一个匹配 (Enter)"
+                        >
+                          <ChevronDown className="w-3 h-3" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFilterText('');
+                            setActiveMatchIndex(0);
+                          }}
+                          className="p-0.5 hover:bg-hover rounded text-gray-400 hover:text-white transition"
+                          title="清空搜索"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    )}
                   </div>
-                  <div className="text-[11px] text-gray-600">
-                    支持实时全双工通信、心跳保活、JSON/Text 消息高亮解析与全文字段搜索
+
+                  {/* Filter Only Toggle */}
+                  <button
+                    type="button"
+                    onClick={() => setFilterOnly(!filterOnly)}
+                    className={`h-7 px-2 rounded border text-xs flex items-center gap-1 transition shrink-0 select-none ${
+                      filterOnly
+                        ? 'bg-accent/20 border-accent/40 text-accent font-medium'
+                        : 'bg-surface hover:bg-hover border-line text-gray-400 hover:text-gray-200'
+                    }`}
+                    title={filterOnly ? "当前为仅展示匹配项模式" : "仅展示匹配项"}
+                  >
+                    <Filter className="w-3 h-3" />
+                    <span className="hidden sm:inline">仅匹配</span>
+                  </button>
+
+                  {/* Compact Direction Segmented Buttons */}
+                  <div className="flex items-center bg-surface border border-line rounded-md p-0.5 shrink-0 text-xs select-none">
+                    <button
+                      type="button"
+                      onClick={() => setDirectionFilter('all')}
+                      className={`px-2 py-0.5 rounded text-[11px] font-medium transition whitespace-nowrap ${
+                        directionFilter === 'all'
+                          ? 'bg-subtle text-foreground shadow-sm'
+                          : 'text-gray-400 hover:text-gray-200'
+                      }`}
+                    >
+                      全部 ({totalDataCount})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDirectionFilter('send')}
+                      className={`px-2 py-0.5 rounded text-[11px] font-medium transition whitespace-nowrap ${
+                        directionFilter === 'send'
+                          ? 'bg-emerald-500/20 text-emerald-300 font-semibold shadow-sm'
+                          : 'text-gray-400 hover:text-gray-200'
+                      }`}
+                    >
+                      发送 ({sentCount})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDirectionFilter('receive')}
+                      className={`px-2 py-0.5 rounded text-[11px] font-medium transition whitespace-nowrap ${
+                        directionFilter === 'receive'
+                          ? 'bg-sky-500/20 text-sky-300 font-semibold shadow-sm'
+                          : 'text-gray-400 hover:text-gray-200'
+                      }`}
+                    >
+                      接收 ({recvCount})
+                    </button>
+                    {systemCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setDirectionFilter('system')}
+                        className={`px-2 py-0.5 rounded text-[11px] font-medium transition whitespace-nowrap ${
+                          directionFilter === 'system'
+                            ? 'bg-subtle text-gray-200 shadow-sm'
+                            : 'text-gray-500 hover:text-gray-300'
+                        }`}
+                      >
+                        系统 ({systemCount})
+                      </button>
+                    )}
                   </div>
                 </div>
-              ) : (
-                visibleMessages.map((m, index) => {
-                  const isMatch = matchedMessageIds.includes(m.id);
-                  const isCurrentMatch = m.id === currentMatchId;
 
-                  if (m.direction === 'system') {
+                {/* Right Action Tools */}
+                <div className="flex items-center gap-1 shrink-0">
+                  <Tooltip content={autoScroll ? "已开启自动滚动" : "已暂停自动滚动"}>
+                    <button
+                      type="button"
+                      onClick={() => setAutoScroll(!autoScroll)}
+                      className={`h-7 px-2 rounded border text-xs flex items-center gap-1 transition ${
+                        autoScroll
+                          ? 'bg-accent/15 border-accent/30 text-accent hover:bg-accent/25'
+                          : 'bg-surface border-line text-gray-400 hover:text-white'
+                      }`}
+                    >
+                      <ArrowDownToLine className="w-3.5 h-3.5" />
+                      <span className="hidden md:inline text-[11px]">滚动</span>
+                    </button>
+                  </Tooltip>
+
+                  <Tooltip content="导出消息记录 (JSON)">
+                    <button
+                      type="button"
+                      onClick={handleExportMessages}
+                      disabled={messages.length === 0}
+                      className="h-7 px-2 rounded bg-surface hover:bg-hover border border-line text-gray-300 hover:text-white text-xs flex items-center gap-1 disabled:opacity-40 transition"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span className="hidden md:inline text-[11px]">导出</span>
+                    </button>
+                  </Tooltip>
+
+                  <Tooltip content="清空当前消息">
+                    <button
+                      type="button"
+                      onClick={handleClearMessages}
+                      disabled={messages.length === 0}
+                      className="h-7 px-2 rounded bg-surface hover:bg-rose-500/20 border border-line text-gray-300 hover:text-rose-400 text-xs flex items-center gap-1 disabled:opacity-40 transition"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span className="hidden md:inline text-[11px]">清空</span>
+                    </button>
+                  </Tooltip>
+                </div>
+              </div>
+
+              {/* Timeline Message Feed */}
+              <div ref={scrollContainerRef} className="flex-1 overflow-y-auto p-3 space-y-2.5 min-h-0">
+                {visibleMessages.length === 0 ? (
+                  <div className="h-full flex flex-col items-center justify-center text-gray-500 gap-2.5 py-12">
+                    <Zap className="w-10 h-10 text-gray-600 stroke-1" />
+                    <div className="text-xs font-medium text-gray-400">
+                      {filterText.trim() && filterOnly
+                        ? '没有找到匹配搜索条件的消息'
+                        : status === 'connected'
+                        ? '已建立 WebSocket 连接，可以在上方右侧编写并发送消息'
+                        : '暂无消息记录，请在顶部输入 ws:// 或 wss:// 地址并点击“连接”'}
+                    </div>
+                    <div className="text-[11px] text-gray-600">
+                      支持实时全双工通信、心跳保活、JSON/Text 消息高亮解析与全文字段搜索
+                    </div>
+                  </div>
+                ) : (
+                  visibleMessages.map((m, index) => {
+                    const isMatch = matchedMessageIds.includes(m.id);
+                    const isCurrentMatch = m.id === currentMatchId;
+
+                    if (m.direction === 'system') {
+                      return (
+                        <div
+                          id={`ws-msg-${m.id}`}
+                          key={m.id}
+                          className={`stream-item-perf flex items-center justify-center gap-2 py-1 text-[11px] text-gray-500 font-mono rounded px-2 transition ${
+                            isCurrentMatch
+                              ? 'bg-accent/20 text-accent ring-1 ring-accent/80 font-bold'
+                              : isMatch
+                              ? 'bg-subtle/80 text-gray-300'
+                              : ''
+                          }`}
+                        >
+                          <span className="w-1.5 h-1.5 rounded-full bg-gray-500" />
+                          <span>{renderHighlightedText(m.data, filterText)}</span>
+                          <span className="text-gray-600 text-[10px]">({m.timeStr})</span>
+                        </div>
+                      );
+                    }
+
+                    const isSend = m.direction === 'send';
+
                     return (
                       <div
                         id={`ws-msg-${m.id}`}
                         key={m.id}
-                        className={`stream-item-perf flex items-center justify-center gap-2 py-1 text-[11px] text-gray-500 font-mono rounded px-2 transition ${
+                        className={`stream-item-perf rounded-lg border transition-all duration-150 overflow-hidden text-xs ${
                           isCurrentMatch
-                            ? 'bg-teal-500/20 text-teal-300 ring-1 ring-teal-400/80 font-bold'
+                            ? 'ring-2 ring-accent/90 shadow-lg shadow-accent/10'
                             : isMatch
-                            ? 'bg-subtle/80 text-gray-300'
+                            ? 'ring-1 ring-accent/40'
                             : ''
+                        } ${
+                          isSend
+                            ? 'border-emerald-500/20 bg-emerald-500/5 hover:bg-emerald-500/10'
+                            : 'border-sky-500/20 bg-sky-500/5 hover:bg-sky-500/10'
                         }`}
                       >
-                        <span className="w-1.5 h-1.5 rounded-full bg-gray-500" />
-                        <span>{renderHighlightedText(m.data, filterText)}</span>
-                        <span className="text-gray-600 text-[10px]">({m.timeStr})</span>
+                        {/* Message Header */}
+                        <div className="px-3 py-1.5 flex items-center justify-between gap-2 border-b border-line/30 bg-subtle/40">
+                          <div className="flex items-center gap-2">
+                            {isSend ? (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-400 flex items-center gap-1 font-mono">
+                                <ArrowUpRight className="w-3 h-3" />
+                                <span>发送</span>
+                              </span>
+                            ) : (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-sky-500/20 text-sky-400 flex items-center gap-1 font-mono">
+                                <ArrowDownLeft className="w-3 h-3" />
+                                <span>接收</span>
+                              </span>
+                            )}
+
+                            <span className="text-[11px] text-gray-500 font-mono">
+                              #{m.seq ?? dataMessageIndexMap.get(m.id) ?? index + 1}
+                            </span>
+
+                            {m.isJson && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setExpandedJsonIds((prev) => ({
+                                    ...prev,
+                                    [m.id]: !prev[m.id],
+                                  }))
+                                }
+                                className={`p-1 rounded transition flex items-center justify-center ${
+                                  expandedJsonIds[m.id]
+                                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                                    : 'bg-subtle hover:bg-hover text-gray-400 hover:text-gray-200 border border-line'
+                                }`}
+                                title={expandedJsonIds[m.id] ? "切换回纯文本视图" : "结构化 JSON 视图"}
+                                aria-label={expandedJsonIds[m.id] ? "文本视图" : "树状视图"}
+                              >
+                                {expandedJsonIds[m.id] ? (
+                                  <Code2 className="w-3 h-3 text-amber-400" />
+                                ) : (
+                                  <ListTree className="w-3 h-3 text-amber-400" />
+                                )}
+                              </button>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-3">
+                            <span className="text-[11px] text-gray-500 font-mono">{m.timeStr}</span>
+                            <span className="text-[11px] text-gray-500 font-mono">{m.size} B</span>
+
+                            <Tooltip content={copiedId === m.id ? "已复制" : "复制"}>
+                              <button
+                                type="button"
+                                onClick={() => handleCopyMessage(m)}
+                                className="p-1 hover:bg-hover rounded text-gray-400 hover:text-white transition"
+                              >
+                                {copiedId === m.id ? (
+                                  <Check className="w-3.5 h-3.5 text-emerald-400" />
+                                ) : (
+                                  <Copy className="w-3.5 h-3.5" />
+                                )}
+                              </button>
+                            </Tooltip>
+                          </div>
+                        </div>
+
+                        {/* Message Body */}
+                        <div className="p-3 bg-canvas/30">
+                          {m.isJson && expandedJsonIds[m.id] ? (
+                            <div className="rounded border border-line/60 bg-surface/50 overflow-hidden max-h-96 p-1">
+                              <JsonCodeEditor
+                                value={m.data}
+                                readOnly={true}
+                                defaultView="tree"
+                                showToolbar={false}
+                                minHeight="80px"
+                                className="border-none rounded-none bg-transparent"
+                              />
+                            </div>
+                          ) : (
+                            <pre className="font-mono text-xs text-gray-200 whitespace-pre-wrap break-all leading-relaxed max-h-80 overflow-y-auto">
+                              {renderHighlightedText(m.data, filterText)}
+                            </pre>
+                          )}
+                        </div>
                       </div>
                     );
-                  }
-
-                  const isSend = m.direction === 'send';
-
-                  return (
-                    <div
-                      id={`ws-msg-${m.id}`}
-                      key={m.id}
-                      className={`stream-item-perf rounded-lg border transition-all duration-150 overflow-hidden text-xs ${
-                        isCurrentMatch
-                          ? 'ring-2 ring-teal-400/90 shadow-lg shadow-teal-500/10'
-                          : isMatch
-                          ? 'ring-1 ring-teal-500/40'
-                          : ''
-                      } ${
-                        isSend
-                          ? 'border-emerald-500/20 bg-emerald-500/5 hover:bg-emerald-500/10'
-                          : 'border-sky-500/20 bg-sky-500/5 hover:bg-sky-500/10'
-                      }`}
-                    >
-                      {/* Message Header */}
-                      <div className="px-3 py-1.5 flex items-center justify-between gap-2 border-b border-line/30 bg-subtle/40">
-                        <div className="flex items-center gap-2">
-                          {isSend ? (
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-400 flex items-center gap-1 font-mono">
-                              <ArrowUpRight className="w-3 h-3" />
-                              <span>发送</span>
-                            </span>
-                          ) : (
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-sky-500/20 text-sky-400 flex items-center gap-1 font-mono">
-                              <ArrowDownLeft className="w-3 h-3" />
-                              <span>接收</span>
-                            </span>
-                          )}
-
-                          <span className="text-[11px] text-gray-500 font-mono">
-                            #{m.seq ?? dataMessageIndexMap.get(m.id) ?? index + 1}
-                          </span>
-
-                          {m.isJson && (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setExpandedJsonIds((prev) => ({
-                                  ...prev,
-                                  [m.id]: !prev[m.id],
-                                }))
-                              }
-                              className={`p-1 rounded transition flex items-center justify-center ${
-                                expandedJsonIds[m.id]
-                                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                                  : 'bg-subtle hover:bg-hover text-gray-400 hover:text-gray-200 border border-line'
-                              }`}
-                              title={expandedJsonIds[m.id] ? "切换回纯文本视图" : "结构化 JSON 视图"}
-                              aria-label={expandedJsonIds[m.id] ? "文本视图" : "树状视图"}
-                            >
-                              {expandedJsonIds[m.id] ? (
-                                <Code2 className="w-3 h-3 text-amber-400" />
-                              ) : (
-                                <ListTree className="w-3 h-3 text-amber-400" />
-                              )}
-                            </button>
-                          )}
-                        </div>
-
-                        <div className="flex items-center gap-3">
-                          <span className="text-[11px] text-gray-500 font-mono">{m.timeStr}</span>
-                          <span className="text-[11px] text-gray-500 font-mono">{m.size} B</span>
-
-                          <Tooltip content={copiedId === m.id ? "已复制" : "复制"}>
-                            <button
-                              type="button"
-                              onClick={() => handleCopyMessage(m)}
-                              className="p-1 hover:bg-hover rounded text-gray-400 hover:text-white transition"
-                            >
-                              {copiedId === m.id ? (
-                                <Check className="w-3.5 h-3.5 text-emerald-400" />
-                              ) : (
-                                <Copy className="w-3.5 h-3.5" />
-                              )}
-                            </button>
-                          </Tooltip>
-                        </div>
-                      </div>
-
-                      {/* Message Body */}
-                      <div className="p-3 bg-canvas/30">
-                        {m.isJson && expandedJsonIds[m.id] ? (
-                          <div className="rounded border border-line/60 bg-surface/50 overflow-hidden max-h-96 p-1">
-                            <JsonCodeEditor
-                              value={m.data}
-                              readOnly={true}
-                              defaultView="tree"
-                              showToolbar={false}
-                              minHeight="80px"
-                              className="border-none rounded-none bg-transparent"
-                            />
-                          </div>
-                        ) : (
-                          <pre className="font-mono text-xs text-gray-200 whitespace-pre-wrap break-all leading-relaxed max-h-80 overflow-y-auto">
-                            {renderHighlightedText(m.data, filterText)}
-                          </pre>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })
-              )}
+                  })
+                )}
+              </div>
             </div>
-          </div>
-        )}
+          )}
+
+          {/* Tab 2: 握手与连接 (Connection Overview) */}
+          {activeResponseTab === 'connection' && (
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0 bg-canvas select-text">
+              {/* Connection Summary Card */}
+              <div className="p-4 rounded-lg border border-line bg-surface/40 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-xs text-foreground flex items-center gap-1.5">
+                    <Globe className="w-3.5 h-3.5 text-accent" />
+                    <span>WebSocket 连接概览</span>
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const resolved = resolveWsUrl(api.url);
+                        navigator.clipboard.writeText(resolved);
+                        setCopiedUrl(true);
+                        setTimeout(() => setCopiedUrl(false), 2000);
+                        toast.success('已复制完整连接地址');
+                      }}
+                      className="px-2 py-1 rounded bg-subtle hover:bg-hover border border-line text-xs text-gray-300 hover:text-white flex items-center gap-1 transition"
+                    >
+                      {copiedUrl ? (
+                        <>
+                          <Check className="w-3 h-3 text-emerald-400" />
+                          <span>已复制</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3 h-3" />
+                          <span>复制地址</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                  <div className="space-y-1">
+                    <span className="text-gray-500 text-[11px]">实际连接 URL:</span>
+                    <div className="font-mono text-accent bg-subtle p-2 rounded border border-line/50 break-all select-all">
+                      {resolveWsUrl(api.url) || '未指定地址'}
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-gray-500 text-[11px]">连接状态与时长:</span>
+                    <div className="bg-subtle p-2 rounded border border-line/50 flex items-center justify-between">
+                      <span className="font-medium">
+                        {status === 'connected' ? '已连接' : status === 'connecting' ? '正在连接' : status === 'error' ? '异常' : '未连接'}
+                      </span>
+                      <span className="font-mono text-gray-400">{elapsedDuration}</span>
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-gray-500 text-[11px]">Sec-WebSocket-Protocol:</span>
+                    <div className="bg-subtle p-2 rounded border border-line/50 font-mono text-gray-300">
+                      {protocolsInput.trim() || '无子协议'}
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-gray-500 text-[11px]">心跳保活状态:</span>
+                    <div className="bg-subtle p-2 rounded border border-line/50 flex items-center justify-between">
+                      <span>{heartbeatEnabled ? '已启用' : '未启用'}</span>
+                      {heartbeatEnabled && (
+                        <span className="font-mono text-accent">
+                          {heartbeatInterval}s / &quot;{heartbeatMsg}&quot;
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Handshake Parameters (Query & Headers) */}
+              <div className="p-4 rounded-lg border border-line bg-surface/40 space-y-3">
+                <span className="font-semibold text-xs text-foreground flex items-center gap-1.5">
+                  <FileText className="w-3.5 h-3.5 text-accent" />
+                  <span>握手请求参数</span>
+                </span>
+
+                <div className="space-y-2">
+                  <span className="text-xs text-gray-400 font-medium">URL 查询参数 (Query):</span>
+                  {api.request?.query?.parameter?.filter((p) => p.is_checked === 1 && p.key).length === 0 &&
+                  inheritedQuery.filter((q) => !q.overridden && q.key).length === 0 ? (
+                    <div className="text-xs text-gray-500 italic p-2 bg-subtle/50 rounded">无查询参数</div>
+                  ) : (
+                    <div className="rounded border border-line overflow-hidden">
+                      <table className="w-full text-xs text-left">
+                        <thead className="bg-subtle text-gray-400 border-b border-line">
+                          <tr>
+                            <th className="px-3 py-1.5 font-medium">参数名 (Key)</th>
+                            <th className="px-3 py-1.5 font-medium">参数值 (Value)</th>
+                            <th className="px-3 py-1.5 font-medium w-24">来源</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-line/40">
+                          {inheritedQuery
+                            .filter((q) => !q.overridden && q.key)
+                            .map((q, i) => (
+                              <tr key={`inh-q-${i}`} className="hover:bg-hover/40 font-mono text-[11px]">
+                                <td className="px-3 py-1.5 text-accent">{q.key}</td>
+                                <td className="px-3 py-1.5 text-gray-300">{q.value}</td>
+                                <td className="px-3 py-1.5 text-amber-400/80 font-sans text-[10px]">继承自父目录</td>
+                              </tr>
+                            ))}
+                          {(api.request?.query?.parameter || [])
+                            .filter((p) => p.is_checked === 1 && p.key)
+                            .map((p, i) => (
+                              <tr key={`dir-q-${i}`} className="hover:bg-hover/40 font-mono text-[11px]">
+                                <td className="px-3 py-1.5 text-accent">{p.key}</td>
+                                <td className="px-3 py-1.5 text-gray-300">{p.value}</td>
+                                <td className="px-3 py-1.5 text-gray-500 font-sans text-[10px]">接口直接指定</td>
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-2 pt-2">
+                  <span className="text-xs text-gray-400 font-medium">请求头 (Headers):</span>
+                  {api.request?.header?.parameter?.filter((h) => h.is_checked === 1 && h.key).length === 0 &&
+                  inheritedHeaders.filter((h) => !h.overridden && h.key).length === 0 ? (
+                    <div className="text-xs text-gray-500 italic p-2 bg-subtle/50 rounded">无自定义请求头</div>
+                  ) : (
+                    <div className="rounded border border-line overflow-hidden">
+                      <table className="w-full text-xs text-left">
+                        <thead className="bg-subtle text-gray-400 border-b border-line">
+                          <tr>
+                            <th className="px-3 py-1.5 font-medium">Header 名</th>
+                            <th className="px-3 py-1.5 font-medium">Header 值</th>
+                            <th className="px-3 py-1.5 font-medium w-24">来源</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-line/40">
+                          {inheritedHeaders
+                            .filter((h) => !h.overridden && h.key)
+                            .map((h, i) => (
+                              <tr key={`inh-h-${i}`} className="hover:bg-hover/40 font-mono text-[11px]">
+                                <td className="px-3 py-1.5 text-accent">{h.key}</td>
+                                <td className="px-3 py-1.5 text-gray-300">{h.value}</td>
+                                <td className="px-3 py-1.5 text-amber-400/80 font-sans text-[10px]">继承自父目录</td>
+                              </tr>
+                            ))}
+                          {(api.request?.header?.parameter || [])
+                            .filter((h) => h.is_checked === 1 && h.key)
+                            .map((h, i) => (
+                              <tr key={`dir-h-${i}`} className="hover:bg-hover/40 font-mono text-[11px]">
+                                <td className="px-3 py-1.5 text-accent">{h.key}</td>
+                                <td className="px-3 py-1.5 text-gray-300">{h.value}</td>
+                                <td className="px-3 py-1.5 text-gray-500 font-sans text-[10px]">接口直接指定</td>
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

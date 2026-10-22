@@ -89,12 +89,29 @@ export class NetworkEngine {
     api: ApiDetail,
     envVars: Record<string, string> = {},
     globalVars: Record<string, string> = {},
-    preUrl: string = ''
+    preUrl: string = '',
+    signal?: AbortSignal
   ): Promise<HttpResponseResult> {
     const startTime = performance.now();
     let currentEnv = { ...envVars };
     let currentGlobals = { ...globalVars };
     const allLogs: string[] = [];
+
+    if (signal?.aborted) {
+      return {
+        statusCode: 0,
+        statusText: 'Canceled',
+        timeMs: 0,
+        sizeBytes: 0,
+        headers: {},
+        cookies: [],
+        data: null,
+        rawText: '',
+        error: '请求已被手动取消',
+        logs: [`[${new Date().toLocaleTimeString()}] [CANCEL] 请求已被手动取消`],
+        actualRequest: undefined,
+      };
+    }
 
     // 1. Run Pre-request Scripts
     if (api.request.pre_tasks && api.request.pre_tasks.length > 0) {
@@ -371,11 +388,12 @@ export class NetworkEngine {
       params: queryParams,
       headers,
       data: dataPayload,
-      timeout: 30000,
+      timeout: 0, // No timeout limit as requested
       validateStatus: () => true, // Don't throw on 4xx/5xx
       httpAgent: this.httpAgent,
       httpsAgent: this.httpsAgent,
       transformResponse: [(d) => d], // Keep raw string
+      signal,
     };
 
     try {
@@ -450,6 +468,30 @@ export class NetworkEngine {
       const endTime = performance.now();
       const timeMs = Math.round(endTime - startTime);
       const errTimeStr = new Date().toLocaleTimeString();
+
+      const isCanceled =
+        axios.isCancel(err) ||
+        err?.name === 'CanceledError' ||
+        err?.code === 'ERR_CANCELED' ||
+        signal?.aborted;
+
+      if (isCanceled) {
+        allLogs.push(`[${errTimeStr}] [CANCEL] 请求已被手动取消`);
+        return {
+          statusCode: 0,
+          statusText: 'Canceled',
+          timeMs,
+          sizeBytes: 0,
+          headers: {},
+          cookies: [],
+          data: null,
+          rawText: '',
+          error: '请求已被手动取消',
+          logs: allLogs,
+          actualRequest: actualRequestInfo,
+        };
+      }
+
       allLogs.push(`[${errTimeStr}] [ERROR] 请求异常: ${err.message || err}`);
       if (err.code) {
         allLogs.push(`[${errTimeStr}] [ERROR-CODE] ${err.code}`);

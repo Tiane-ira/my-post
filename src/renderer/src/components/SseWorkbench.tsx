@@ -1177,7 +1177,7 @@ export const SseWorkbench: React.FC<SseWorkbenchProps> = ({
               onClick={() => setResponseViewMode('pretty')}
               className={`px-2 py-0.5 rounded text-[11px] font-medium flex items-center gap-1 transition ${
                 responseViewMode === 'pretty'
-                  ? 'bg-surface text-sky-400 font-semibold shadow-sm'
+                  ? 'bg-surface text-accent font-semibold shadow-sm'
                   : 'text-gray-400 hover:text-gray-200'
               }`}
               title="美化结构展示"
@@ -1190,7 +1190,7 @@ export const SseWorkbench: React.FC<SseWorkbenchProps> = ({
               onClick={() => setResponseViewMode('raw')}
               className={`px-2 py-0.5 rounded text-[11px] font-medium flex items-center gap-1 transition ${
                 responseViewMode === 'raw'
-                  ? 'bg-surface text-sky-400 font-semibold shadow-sm'
+                  ? 'bg-surface text-accent font-semibold shadow-sm'
                   : 'text-gray-400 hover:text-gray-200'
               }`}
               title="原始网络报文"
@@ -1225,7 +1225,7 @@ export const SseWorkbench: React.FC<SseWorkbenchProps> = ({
                 }
               }}
               placeholder="搜索事件、数据、ID..."
-              className="w-full bg-subtle border border-line focus:border-sky-500 rounded-lg pl-8 pr-16 py-1 text-xs text-foreground placeholder-gray-500 focus:outline-none transition shadow-inner font-sans"
+              className="w-full bg-subtle border border-line focus:border-accent rounded-lg pl-8 pr-16 py-1 text-xs text-foreground placeholder-gray-500 focus:outline-none transition shadow-inner font-sans"
             />
 
             {/* Match counter & navigation controls inside search box */}
@@ -1273,7 +1273,7 @@ export const SseWorkbench: React.FC<SseWorkbenchProps> = ({
             onClick={() => setFilterOnly(!filterOnly)}
             className={`h-7 px-2 rounded-md border text-xs flex items-center gap-1 transition shrink-0 select-none ${
               filterOnly
-                ? 'bg-sky-500/20 border-sky-500/40 text-sky-300 font-medium'
+                ? 'bg-accent/20 border-accent/40 text-accent font-medium'
                 : 'bg-subtle hover:bg-hover border-line text-gray-400 hover:text-gray-200'
             }`}
             title={filterOnly ? "当前为仅展示匹配项模式，点击切换回全量展示" : "点击仅展示匹配项"}
@@ -1288,7 +1288,7 @@ export const SseWorkbench: React.FC<SseWorkbenchProps> = ({
               <select
                 value={selectedEventType}
                 onChange={(e) => setSelectedEventType(e.target.value)}
-                className="appearance-none bg-subtle hover:bg-hover border border-line text-gray-300 text-xs pl-2.5 pr-6 py-1 rounded cursor-pointer focus:outline-none focus:border-sky-500 transition shadow-sm"
+                className="appearance-none bg-subtle hover:bg-hover border border-line text-gray-300 text-xs pl-2.5 pr-6 py-1 rounded cursor-pointer focus:outline-none focus:border-accent transition shadow-sm"
                 title="筛选事件类型"
               >
                 <option value="all" className="bg-surface text-gray-200">
@@ -1329,7 +1329,7 @@ export const SseWorkbench: React.FC<SseWorkbenchProps> = ({
                 onClick={() => setWrapRawLines(!wrapRawLines)}
                 className={`w-7 h-7 rounded flex items-center justify-center border transition ${
                   wrapRawLines
-                    ? 'bg-sky-500/20 border-sky-500/40 text-sky-400 shadow-sm'
+                    ? 'bg-accent/20 border-accent/40 text-accent shadow-sm'
                     : 'bg-subtle hover:bg-hover border-line text-gray-400 hover:text-white'
                 }`}
               >
@@ -1345,7 +1345,7 @@ export const SseWorkbench: React.FC<SseWorkbenchProps> = ({
               onClick={() => setAutoScroll(!autoScroll)}
               className={`w-7 h-7 rounded flex items-center justify-center border transition ${
                 autoScroll
-                  ? 'bg-sky-500/20 border-sky-500/40 text-sky-400 shadow-sm'
+                  ? 'bg-accent/15 border-accent/30 text-accent shadow-sm'
                   : 'bg-subtle hover:bg-hover border-line text-gray-400 hover:text-white'
               }`}
             >
@@ -1432,9 +1432,9 @@ export const SseWorkbench: React.FC<SseWorkbenchProps> = ({
                   key={ev.id}
                   className={`stream-item-perf rounded-lg border transition-all duration-150 overflow-hidden text-xs ${
                     isCurrentMatch
-                      ? 'ring-2 ring-sky-400/90 shadow-lg shadow-sky-500/10 border-sky-400/50'
+                      ? 'ring-2 ring-accent/90 shadow-lg shadow-accent/10 border-accent/50'
                       : isMatch
-                      ? 'ring-1 ring-sky-500/40 border-sky-500/30'
+                      ? 'ring-1 ring-accent/40 border-accent/30'
                       : 'border-line'
                   } bg-subtle/40 hover:bg-subtle/70`}
                 >
@@ -1450,7 +1450,7 @@ export const SseWorkbench: React.FC<SseWorkbenchProps> = ({
                         <ChevronRight className="w-3.5 h-3.5 text-gray-400 shrink-0" />
                       )}
 
-                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-sky-500/15 text-sky-400 border border-sky-500/20 font-mono">
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-accent/15 text-accent border border-accent/20 font-mono">
                         {renderHighlightedText(ev.event, filterText)}
                       </span>
 
@@ -1601,10 +1601,10 @@ export const SseWorkbench: React.FC<SseWorkbenchProps> = ({
                     key={ev.id}
                     className={`stream-item-perf p-3 rounded-lg bg-subtle/25 border transition-all duration-150 group relative ${
                       isCurrentMatch
-                        ? 'ring-2 ring-sky-400/90 shadow-lg shadow-sky-500/10 border-sky-400/50 bg-subtle/50'
+                        ? 'ring-2 ring-accent/90 shadow-lg shadow-accent/10 border-accent/50 bg-subtle/50'
                         : isMatch
-                        ? 'ring-1 ring-sky-500/40 border-sky-500/30'
-                        : 'border-line/50 hover:border-sky-500/40 hover:bg-subtle/40'
+                        ? 'ring-1 ring-accent/40 border-accent/30'
+                        : 'border-line/50 hover:border-accent/40 hover:bg-subtle/40'
                     }`}
                   >
                     <div className="flex items-center justify-between text-[11px] text-gray-500 mb-2 pb-1.5 border-b border-line/30 select-none">
@@ -1731,7 +1731,7 @@ export const SseWorkbench: React.FC<SseWorkbenchProps> = ({
               ? 'bg-rose-500 hover:bg-rose-600 text-white'
               : status === 'connecting'
               ? 'bg-accent hover:bg-accent-hover text-white'
-              : 'bg-accent hover:bg-accent-hover text-white shadow-md shadow-orange-500/10'
+              : 'bg-accent hover:bg-accent-hover text-white shadow-md shadow-accent/10'
           }`}
           title="发起流式请求 (Ctrl+Enter)"
         >
@@ -1782,13 +1782,13 @@ export const SseWorkbench: React.FC<SseWorkbenchProps> = ({
         {/* Upper Area: Reusable HTTP Request Editor */}
         <div
           style={{ height: `${reqHeightPercent}%` }}
-          className="flex flex-col bg-sidebar shrink-0 min-h-[90px] overflow-hidden"
+          className="flex flex-col bg-surface shrink-0 min-h-[90px] overflow-hidden"
         >
           <RequestEditor
             api={api}
             onChange={onChange}
             availableVars={availableVars}
-            accentColor="sky"
+            accentColor="accent"
             showScripts={false}
             treeItems={treeItems}
             folderDetails={folderDetails}
@@ -1800,12 +1800,12 @@ export const SseWorkbench: React.FC<SseWorkbenchProps> = ({
         <div
           onMouseDown={() => setIsDragging(true)}
           onDoubleClick={() => setReqHeightPercent(42)}
-          className={`h-1.5 hover:h-2 bg-subtle hover:bg-sky-500/40 border-y border-line cursor-row-resize transition-all flex items-center justify-center select-none group z-10 shrink-0 ${
-            isDragging ? 'bg-sky-500/50 h-2' : ''
+          className={`h-1.5 hover:h-2 bg-subtle hover:bg-accent/40 border-y border-line cursor-row-resize transition-all flex items-center justify-center select-none group z-10 shrink-0 ${
+            isDragging ? 'bg-accent/50 h-2' : ''
           }`}
           title="上下拖动调整请求配置与响应展示区域大小 (双击恢复默认 42%)"
         >
-          <div className="w-8 h-1 rounded-full bg-gray-400/40 group-hover:bg-sky-400 transition" />
+          <div className="w-8 h-1 rounded-full bg-gray-400/40 group-hover:bg-accent transition" />
         </div>
 
         {/* Lower Area: Reusable ResponseViewer with customized real-time streaming body slot */}

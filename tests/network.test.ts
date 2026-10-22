@@ -41,7 +41,7 @@ describe('NetworkEngine Request Processor', () => {
     });
   });
 
-  describe('Request Execution with PreUrl and Variable Verification', () => {
+  describe('Request Execution with PreUrl and Variable Verification', { timeout: 20000 }, () => {
     it('should handle preUrl prefixing when relative path is given', async () => {
       const api: ApiDetail = {
         target_id: 'test-1',
@@ -336,6 +336,60 @@ describe('NetworkEngine Request Processor', () => {
       expect(res.statusCode).toBe(200);
       expect(res.actualRequest?.bodyData).toContain('"greeting": "hello world"');
       expect(res.actualRequest?.bodyData).toContain('"count": 42');
+    });
+
+    it('should handle manual cancellation via pre-aborted AbortSignal', async () => {
+      const controller = new AbortController();
+      controller.abort();
+
+      const api: ApiDetail = {
+        target_id: 'api-cancel-pre',
+        project_id: 'proj-1',
+        parent_id: '0',
+        name: 'Cancel Pre',
+        method: 'GET',
+        url: 'https://httpbin.org/get',
+        sort: 3,
+        status: 1,
+        request: {
+          query: { parameter: [] },
+          header: { parameter: [] },
+          body: { mode: 'none' },
+          auth: { type: 'none' },
+        },
+      };
+
+      const res = await NetworkEngine.executeRequest(api, {}, {}, '', controller.signal);
+      expect(res.statusCode).toBe(0);
+      expect(res.statusText).toBe('Canceled');
+      expect(res.error).toBe('请求已被手动取消');
+    });
+
+    it('should handle in-flight manual cancellation via AbortSignal', async () => {
+      const controller = new AbortController();
+
+      const api: ApiDetail = {
+        target_id: 'api-cancel-inflight',
+        project_id: 'proj-1',
+        parent_id: '0',
+        name: 'Cancel In-flight',
+        method: 'GET',
+        url: 'https://httpbin.org/delay/5',
+        sort: 4,
+        status: 1,
+        request: {
+          query: { parameter: [] },
+          header: { parameter: [] },
+          body: { mode: 'none' },
+          auth: { type: 'none' },
+        },
+      };
+
+      setTimeout(() => controller.abort(), 150);
+      const res = await NetworkEngine.executeRequest(api, {}, {}, '', controller.signal);
+      expect(res.statusCode).toBe(0);
+      expect(res.statusText).toBe('Canceled');
+      expect(res.error).toBe('请求已被手动取消');
     });
   });
 });

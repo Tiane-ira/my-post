@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Clock,
   HardDrive,
@@ -37,6 +37,7 @@ export interface ResponseViewerProps {
   isStreaming?: boolean;
   streamStats?: StreamStats;
   streamingBodySlot?: React.ReactNode;
+  onCancel?: () => void;
 }
 
 export const ResponseViewer: React.FC<ResponseViewerProps> = ({
@@ -46,6 +47,7 @@ export const ResponseViewer: React.FC<ResponseViewerProps> = ({
   isStreaming = false,
   streamStats,
   streamingBodySlot,
+  onCancel,
 }) => {
   // Response tabs (removed examples)
   const [activeTab, setActiveTab] = useState<
@@ -60,6 +62,21 @@ export const ResponseViewer: React.FC<ResponseViewerProps> = ({
   const [copiedActualTable, setCopiedActualTable] = useState(false);
   const [copiedUrl, setCopiedUrl] = useState(false);
   const [copiedLogs, setCopiedLogs] = useState(false);
+
+  // Live timer for request duration when waiting without timeout limit
+  const [elapsedSec, setElapsedSec] = useState(0);
+  useEffect(() => {
+    if (!loading) {
+      setElapsedSec(0);
+      return;
+    }
+    setActiveTab('body');
+    const startTime = Date.now();
+    const timer = setInterval(() => {
+      setElapsedSec(Math.floor((Date.now() - startTime) / 100) / 10);
+    }, 100);
+    return () => clearInterval(timer);
+  }, [loading]);
 
   const prettyJsonText = useMemo(() => {
     if (!response) return '';
@@ -82,6 +99,14 @@ export const ResponseViewer: React.FC<ResponseViewerProps> = ({
   }, [response]);
 
   const getStatusBadge = (code: number, text: string) => {
+    if (text === 'Canceled' || (code === 0 && text.toLowerCase().includes('cancel'))) {
+      return (
+        <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-500/15 text-amber-400 font-bold border border-amber-500/30 text-xs">
+          <span className="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+          已取消 (Canceled)
+        </span>
+      );
+    }
     if (code >= 200 && code < 300) {
       return (
         <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 font-bold border border-emerald-500/30 text-xs">
@@ -311,9 +336,9 @@ export const ResponseViewer: React.FC<ResponseViewerProps> = ({
                 <div className="w-2.5 h-2.5 border-2 border-accent border-t-transparent rounded-full animate-spin" />
                 请求中...
               </span>
-              <span className="text-gray-500 font-mono text-[11px] flex items-center gap-0.5">
-                <Clock className="w-3 h-3 text-gray-500 animate-pulse" />
-                计算中...
+              <span className="text-gray-400 font-mono text-[11px] flex items-center gap-1">
+                <Clock className="w-3 h-3 text-accent animate-pulse" />
+                {elapsedSec.toFixed(1)}s
               </span>
             </div>
           ) : response ? (
@@ -395,11 +420,39 @@ export const ResponseViewer: React.FC<ResponseViewerProps> = ({
               {streamingBodySlot}
             </div>
           ) : loading ? (
-            <div className="h-full flex flex-col items-center justify-center text-gray-400 gap-3 select-none py-16">
-              <div className="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin"></div>
-              <span className="text-xs tracking-wider animate-pulse font-medium">
-                正在请求目标服务，请稍候...
-              </span>
+            <div className="h-full flex items-center justify-center p-6 select-none">
+              <div className="flex flex-col items-center gap-3.5 px-8 py-6 rounded-2xl bg-subtle/40 border border-line shadow-xs text-center max-w-xs w-full animate-in fade-in zoom-in-95 duration-200">
+                {/* 动态进行中指示器 */}
+                <div className="relative flex items-center justify-center w-10 h-10">
+                  <div className="w-10 h-10 rounded-full border-2 border-accent/20 border-t-accent animate-spin" />
+                  <div className="w-2 h-2 rounded-full bg-accent animate-pulse absolute" />
+                </div>
+
+                {/* 状态信息与耗时 */}
+                <div className="space-y-1">
+                  <div className="text-xs font-semibold text-foreground tracking-wide flex items-center justify-center gap-1.5">
+                    <span>请求进行中</span>
+                    <span className="w-1.5 h-1.5 rounded-full bg-accent animate-ping" />
+                  </div>
+                  <div className="text-[11px] font-mono text-gray-400 flex items-center justify-center gap-1">
+                    <Clock className="w-3 h-3 text-gray-500" />
+                    <span>已耗时 {elapsedSec.toFixed(1)}s</span>
+                  </div>
+                </div>
+
+                {/* 取消请求按钮 (参考开源常用样式: 极简边框按钮，Hover 平滑微红) */}
+                {onCancel && (
+                  <button
+                    type="button"
+                    onClick={onCancel}
+                    className="mt-1 px-4 py-1.5 rounded-lg bg-surface hover:bg-rose-500/10 text-gray-300 hover:text-rose-400 border border-line hover:border-rose-500/30 text-xs font-medium flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer shadow-2xs group"
+                    title="取消本次请求"
+                  >
+                    <X className="w-3.5 h-3.5 group-hover:rotate-90 transition-transform duration-200" />
+                    <span>取消请求</span>
+                  </button>
+                )}
+              </div>
             </div>
           ) : !response ? (
             <div className="h-full flex flex-col items-center justify-center text-gray-500 gap-3 select-none py-12">
@@ -476,7 +529,19 @@ export const ResponseViewer: React.FC<ResponseViewerProps> = ({
 
               {/* Viewer Body */}
               <div className="flex-1 min-h-0 border border-line rounded-lg bg-surface overflow-hidden flex flex-col font-mono text-xs">
-                {response.error ? (
+                {response.statusText === 'Canceled' || response.error === '请求已被手动取消' ? (
+                  <div className="h-full flex flex-col items-center justify-center text-gray-400 gap-3 select-none p-6 text-center">
+                    <div className="w-12 h-12 rounded-xl bg-amber-500/10 border border-amber-500/25 flex items-center justify-center text-amber-400">
+                      <XCircle className="w-6 h-6" />
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-sm font-semibold text-gray-200">请求已手动取消</div>
+                      <div className="text-xs text-gray-400">
+                        已终止本次连接，等待耗时 {response.timeMs}ms
+                      </div>
+                    </div>
+                  </div>
+                ) : response.error ? (
                   <div className="p-3 text-rose-400 whitespace-pre-wrap overflow-auto">{response.error}</div>
                 ) : bodyMode === 'pretty' ? (
                   <JsonCodeEditor
