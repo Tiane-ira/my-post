@@ -523,6 +523,10 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        const target = e.target as HTMLElement | null;
+        if (target && (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT' || target.closest('.monaco-editor'))) {
+          return;
+        }
         e.preventDefault();
         handleConnect();
       }
@@ -1152,12 +1156,6 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
                     value={inputMessage}
                     onChange={handleInputMessageChange}
                     placeholder={'{\n  "action": "ping"\n}'}
-                    onKeyDown={(e) => {
-                      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-                        e.preventDefault();
-                        handleSendMessage();
-                      }
-                    }}
                     className="h-full border-none rounded-none"
                   />
                 </div>
@@ -1165,13 +1163,7 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
                 <textarea
                   value={inputMessage}
                   onChange={(e) => handleInputMessageChange(e.target.value)}
-                  onKeyDown={(e) => {
-                    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-                      e.preventDefault();
-                      handleSendMessage();
-                    }
-                  }}
-                  placeholder="输入要发送的 WebSocket 文本或 JSON 内容... (支持 Ctrl+Enter 快捷发送)"
+                  placeholder="输入要发送的 WebSocket 文本或 JSON 内容..."
                   className="flex-1 w-full bg-subtle border border-line rounded-lg p-2.5 text-xs font-mono text-foreground placeholder-gray-500 focus:outline-none focus:border-accent resize-none leading-relaxed shadow-inner"
                 />
               )}
@@ -1180,7 +1172,7 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
             {/* Composer Footer Bar */}
             <div className="px-3 py-1.5 border-t border-line/60 bg-subtle/30 flex items-center justify-between shrink-0 select-none">
               <span className="text-[11px] text-gray-500 font-mono">
-                快捷键: <kbd className="px-1 py-0.5 bg-subtle rounded border border-line text-[10px]">Ctrl</kbd> + <kbd className="px-1 py-0.5 bg-subtle rounded border border-line text-[10px]">Enter</kbd>
+                {inputMessage.length > 0 ? `${inputMessage.length} 字符` : '就绪'}
               </span>
 
               <button
