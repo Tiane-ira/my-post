@@ -465,17 +465,6 @@ export const SseWorkbench: React.FC<SseWorkbenchProps> = ({
     OPTIONS: 'text-gray-400 bg-gray-500/10 border-gray-500/30',
   };
 
-  // Keyboard shortcut Ctrl+Enter to connect/disconnect
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-        e.preventDefault();
-        handleStartStream();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [status, api]);
 
   // Interpolate URL with variables and ensure valid protocol
   const resolveUrl = (rawUrl: string): string => {
@@ -1733,7 +1722,7 @@ export const SseWorkbench: React.FC<SseWorkbenchProps> = ({
               ? 'bg-accent hover:bg-accent-hover text-white'
               : 'bg-accent hover:bg-accent-hover text-white shadow-md shadow-accent/10'
           }`}
-          title="发起流式请求 (Ctrl+Enter)"
+          title="发起流式请求"
         >
           {status === 'connecting' ? (
             <>

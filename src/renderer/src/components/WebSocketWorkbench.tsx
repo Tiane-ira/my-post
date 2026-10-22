@@ -519,21 +519,6 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
     }
   };
 
-  // Keyboard shortcut Ctrl+Enter to connect/disconnect
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-        const target = e.target as HTMLElement | null;
-        if (target && (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT' || target.closest('.monaco-editor'))) {
-          return;
-        }
-        e.preventDefault();
-        handleConnect();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [status, api]);
 
   const handleConnect = () => {
     if (status === 'connected' || status === 'connecting') {
@@ -859,7 +844,7 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
               ? 'bg-accent hover:bg-accent-hover text-white'
               : 'bg-accent hover:bg-accent-hover text-white shadow-md shadow-accent/10'
           }`}
-          title="连接 WebSocket (Ctrl+Enter)"
+          title="连接 WebSocket"
         >
           {status === 'connecting' ? (
             <>

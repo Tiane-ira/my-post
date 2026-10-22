@@ -153,17 +153,6 @@ export const ApiWorkbench: React.FC<ApiWorkbenchProps> = ({
     });
   };
 
-  // Keyboard shortcut Ctrl+Enter to send request
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-        e.preventDefault();
-        handleSend();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [api, req]);
 
   // Synchronize path params on initial load/mount if URL has path variables
   useEffect(() => {
@@ -604,7 +593,7 @@ export const ApiWorkbench: React.FC<ApiWorkbenchProps> = ({
           onClick={handleSend}
           disabled={loading}
           className="h-9 px-4 rounded-lg bg-accent hover:bg-accent-hover text-white font-bold text-xs flex items-center gap-2 transition disabled:opacity-50 shadow-md shadow-accent/10 shrink-0"
-          title="发送请求 (Ctrl+Enter)"
+          title="发送请求"
         >
           {loading ? (
             <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>

@@ -464,7 +464,7 @@ export const ResponseViewer: React.FC<ResponseViewerProps> = ({
                   点击上方「发送」按钮，即可在此查看实时响应
                 </div>
                 <div className="text-[11px] text-gray-500">
-                  支持快捷键 <kbd className="px-1.5 py-0.5 rounded bg-subtle border border-line font-mono text-[10px] text-gray-400">Ctrl</kbd> + <kbd className="px-1.5 py-0.5 rounded bg-subtle border border-line font-mono text-[10px] text-gray-400">Enter</kbd> 快速发起请求
+                  支持快速解析 Header、Cookie、耗时与各类数据格式
                 </div>
               </div>
             </div>
