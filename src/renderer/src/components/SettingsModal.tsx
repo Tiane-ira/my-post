@@ -240,7 +240,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
 
             <div className="text-[10px] text-gray-500 text-center font-mono py-1">
-              v2026.10.23 Desktop
+              v2026.10.24 Desktop
             </div>
           </div>
 
@@ -644,7 +644,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                 <div>
                   <h3 className="text-base font-extrabold text-foreground">mypost 桌面工作台</h3>
-                  <p className="text-xs text-gray-400 font-mono mt-0.5">Version 2026.10.23 (Release Build)</p>
+                  <p className="text-xs text-gray-400 font-mono mt-0.5">Version 2026.10.24 (Release Build)</p>
                 </div>
 
                 <p className="text-xs text-gray-300 max-w-md mx-auto leading-relaxed">
