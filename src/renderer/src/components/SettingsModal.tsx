@@ -21,10 +21,26 @@ import {
   Sliders,
   Power,
   AppWindow,
+  ExternalLink,
+  RefreshCw,
+  CheckCircle2,
+  AlertCircle,
+  ArrowUpRight,
+  Download,
 } from 'lucide-react';
 import { ProjectInfo, ApiTreeNode } from '../../../common/types';
 import { useTheme } from '../utils/themeManager';
 import { useFeedback } from './FeedbackContext';
+import {
+  APP_VERSION,
+  GITHUB_REPO_URL,
+  GITHUB_RELEASES_URL,
+  checkForUpdates,
+  getAutoCheckEnabled,
+  setAutoCheckEnabled,
+  getLastCheckedTimestamp,
+  UpdateCheckResult,
+} from '../utils/updateChecker';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -42,7 +58,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   treeItems,
 }) => {
   const { toast } = useFeedback();
-  const { themeMode, setThemeMode } = useTheme();
+  const { themeMode, setThemeMode, themePresetId, setThemePreset, presets, activePreset } = useTheme();
   const [activeTab, setActiveTab] = useState<SettingsTab>('project');
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
@@ -86,6 +102,69 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     const saved = localStorage.getItem('mypost:network:sslVerify');
     return saved !== null ? saved === 'true' : false;
   });
+
+  // Software update state (defaults to false for auto-check)
+  const [autoCheckUpdates, setAutoCheckUpdates] = useState<boolean>(() => getAutoCheckEnabled());
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+  const [updateResult, setUpdateResult] = useState<UpdateCheckResult | null>(null);
+  const [lastCheckedTime, setLastCheckedTime] = useState<number | null>(() => getLastCheckedTimestamp());
+
+  const handleToggleAutoCheck = (enabled: boolean) => {
+    setAutoCheckUpdates(enabled);
+    setAutoCheckEnabled(enabled);
+    if (enabled) {
+      toast.success('已开启启动时自动检测新版本');
+    } else {
+      toast.info('已关闭自动检测新版本');
+    }
+  };
+
+  const handleManualCheckUpdate = async () => {
+    setIsCheckingUpdate(true);
+    setUpdateResult(null);
+    try {
+      const res = await checkForUpdates();
+      setUpdateResult(res);
+      setLastCheckedTime(res.checkedAt);
+      if (res.hasUpdate) {
+        toast.success(`发现新版本 v${res.latestVersion}！`);
+      } else if (res.success) {
+        toast.info('当前已是最新版本');
+      } else {
+        toast.error(`检测更新未成功: ${res.error || '无法连接 GitHub'}`);
+      }
+    } catch (err: any) {
+      const errMsg = err?.message || '检查更新发生异常';
+      setUpdateResult({
+        success: false,
+        hasUpdate: false,
+        currentVersion: APP_VERSION,
+        latestVersion: APP_VERSION,
+        checkedAt: Date.now(),
+        error: errMsg,
+      });
+      toast.error(errMsg);
+    } finally {
+      setIsCheckingUpdate(false);
+    }
+  };
+
+  const handleOpenGithub = () => {
+    if (window.mypostAPI?.openExternal) {
+      window.mypostAPI.openExternal(GITHUB_REPO_URL);
+    } else {
+      window.open(GITHUB_REPO_URL, '_blank');
+    }
+  };
+
+  const handleOpenRelease = (url?: string) => {
+    const targetUrl = url || GITHUB_RELEASES_URL;
+    if (window.mypostAPI?.openExternal) {
+      window.mypostAPI.openExternal(targetUrl);
+    } else {
+      window.open(targetUrl, '_blank');
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -162,7 +241,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           <button
             onClick={onClose}
             className="p-1.5 rounded-lg text-gray-400 hover:text-foreground hover:bg-hover transition"
-            title="关闭 (Esc)"
+            title="关闭"
           >
             <X className="w-4 h-4" />
           </button>
@@ -240,7 +319,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
 
             <div className="text-[10px] text-gray-500 text-center font-mono py-1">
-              v2026.10.24 Desktop
+              v{APP_VERSION} Desktop
             </div>
           </div>
 
@@ -420,65 +499,170 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
             {/* 2. 界面外观 Tab */}
             {activeTab === 'appearance' && (
-              <div className="space-y-5">
+              <div className="space-y-6">
                 <div>
                   <h3 className="text-sm font-bold text-foreground">主题与外观个性化</h3>
                   <p className="text-xs text-gray-400 mt-0.5">
-                    自由切换亮色、暗黑模式，或让应用自动跟随操作系统偏好
+                    自由切换亮色、暗黑模式，或选择精心调配的色彩主题，实时应用生效
                   </p>
                 </div>
 
-                <div className="space-y-3">
-                  <div className="text-xs font-bold text-gray-300">主题色彩模式</div>
+                {/* 模式选择 */}
+                <div className="space-y-2.5">
+                  <div className="text-xs font-bold text-gray-300">模式偏好</div>
                   <div className="grid grid-cols-3 gap-3">
                     <button
                       type="button"
                       onClick={() => setThemeMode('light')}
-                      className={`p-3.5 rounded-xl border flex flex-col items-center gap-2 text-xs font-semibold transition ${
+                      className={`p-3 rounded-xl border flex flex-col items-center gap-1.5 text-xs font-semibold transition ${
                         themeMode === 'light'
                           ? 'border-accent bg-accent/10 text-accent shadow-sm'
                           : 'border-line bg-subtle/40 text-gray-300 hover:bg-hover hover:border-gray-400/60'
                       }`}
                     >
-                      <Sun className="w-5 h-5 text-amber-500" />
+                      <Sun className="w-4 h-4 text-amber-500" />
                       <span>亮色日间模式</span>
                     </button>
 
                     <button
                       type="button"
                       onClick={() => setThemeMode('dark')}
-                      className={`p-3.5 rounded-xl border flex flex-col items-center gap-2 text-xs font-semibold transition ${
+                      className={`p-3 rounded-xl border flex flex-col items-center gap-1.5 text-xs font-semibold transition ${
                         themeMode === 'dark'
                           ? 'border-accent bg-accent/10 text-accent shadow-sm'
                           : 'border-line bg-subtle/40 text-gray-300 hover:bg-hover hover:border-gray-400/60'
                       }`}
                     >
-                      <Moon className="w-5 h-5 text-indigo-400" />
+                      <Moon className="w-4 h-4 text-indigo-400" />
                       <span>暗黑夜间模式</span>
                     </button>
 
                     <button
                       type="button"
                       onClick={() => setThemeMode('system')}
-                      className={`p-3.5 rounded-xl border flex flex-col items-center gap-2 text-xs font-semibold transition ${
+                      className={`p-3 rounded-xl border flex flex-col items-center gap-1.5 text-xs font-semibold transition ${
                         themeMode === 'system'
                           ? 'border-accent bg-accent/10 text-accent shadow-sm'
                           : 'border-line bg-subtle/40 text-gray-300 hover:bg-hover hover:border-gray-400/60'
                       }`}
                     >
-                      <Monitor className="w-5 h-5 text-emerald-400" />
+                      <Monitor className="w-4 h-4 text-emerald-400" />
                       <span>跟随系统设置</span>
                     </button>
+                  </div>
+                </div>
+
+                {/* 精选预设主题 */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="text-xs font-bold text-gray-300 flex items-center gap-1.5">
+                      <Palette className="w-3.5 h-3.5 text-accent" />
+                      <span>工作台精选主题库</span>
+                    </div>
+                    <span className="text-[11px] text-gray-400 font-mono">
+                      当前激活: {activePreset.name}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {presets.map((preset) => {
+                      const isActive = themePresetId === preset.id;
+                      return (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          onClick={() => setThemePreset(preset.id)}
+                          className={`p-3.5 rounded-xl border text-left transition flex flex-col justify-between relative overflow-hidden group ${
+                            isActive
+                              ? 'border-accent bg-accent/10 shadow-md ring-1 ring-accent/30'
+                              : 'border-line bg-subtle/40 hover:bg-hover hover:border-gray-400/60'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-2 mb-2.5">
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold text-xs text-foreground">
+                                  {preset.name}
+                                </span>
+                                <span
+                                  className={`text-[10px] px-1.5 py-0.2 rounded font-mono border ${
+                                    preset.type === 'dark'
+                                      ? 'bg-gray-800 text-gray-300 border-gray-700'
+                                      : 'bg-amber-500/10 text-amber-600 border-amber-500/20'
+                                  }`}
+                                >
+                                  {preset.type === 'dark' ? 'Dark' : 'Light'}
+                                </span>
+                              </div>
+                              <div className="text-[11px] text-gray-400 mt-0.5 line-clamp-1">
+                                {preset.subtitle}
+                              </div>
+                            </div>
+
+                            {isActive ? (
+                              <div className="w-5 h-5 rounded-full bg-accent text-white flex items-center justify-center shrink-0 shadow-sm">
+                                <Check className="w-3 h-3 stroke-[3]" />
+                              </div>
+                            ) : (
+                              <div className="w-5 h-5 rounded-full border border-line group-hover:border-accent/40 shrink-0 transition" />
+                            )}
+                          </div>
+
+                          {/* Color Palette Preview Swatches */}
+                          <div className="flex items-center gap-2 pt-2 border-t border-line/60">
+                            <span className="text-[10px] text-gray-500 font-mono">色盘:</span>
+                            <div className="flex items-center gap-1.5">
+                              {/* Canvas swatch */}
+                              <div
+                                className="w-4 h-4 rounded border shadow-xs"
+                                style={{
+                                  backgroundColor: preset.previewColors.canvas,
+                                  borderColor: preset.previewColors.border,
+                                }}
+                                title="画布底色"
+                              />
+                              {/* Surface swatch */}
+                              <div
+                                className="w-4 h-4 rounded border shadow-xs"
+                                style={{
+                                  backgroundColor: preset.previewColors.surface,
+                                  borderColor: preset.previewColors.border,
+                                }}
+                                title="卡片容器色"
+                              />
+                              {/* Accent swatch */}
+                              <div
+                                className="w-4 h-4 rounded shadow-xs"
+                                style={{ backgroundColor: preset.previewColors.accent }}
+                                title="品牌强调色"
+                              />
+                              {/* Text swatch */}
+                              <div
+                                className="w-4 h-4 rounded flex items-center justify-center font-bold text-[9px] border shadow-xs"
+                                style={{
+                                  backgroundColor: preset.previewColors.surface,
+                                  color: preset.previewColors.text,
+                                  borderColor: preset.previewColors.border,
+                                }}
+                                title="文字主色"
+                              >
+                                Aa
+                              </div>
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
 
                 <div className="p-4 rounded-xl bg-subtle/40 border border-line space-y-2 text-xs">
                   <div className="font-semibold text-gray-300 flex items-center gap-1.5">
                     <Sparkles className="w-4 h-4 text-amber-400" />
-                    <span>设计语言说明</span>
+                    <span>统一设计系统与主题架构说明</span>
                   </div>
                   <p className="text-gray-400 leading-relaxed text-[11px]">
-                    mypost 遵循现代专业桌面软件标准，采用深色玻璃拟态（Glassmorphism）与高对比度色彩体系，专为长时间研发调试设计，提供舒适护眼的视觉体验。
+                    mypost 遵循设计系统原则，提取全局语义色彩 Tokens（画布底色 <code className="text-accent font-mono">--color-canvas</code>、卡片容器 <code className="text-accent font-mono">--color-surface</code>、边框线 <code className="text-accent font-mono">--color-line</code>、主色调 <code className="text-accent font-mono">--color-accent</code>）。无论切换至哪款主题，HTTP、SSE 与 WebSocket 工作台的视觉对比度、字体层级与操作按钮均保持 100% 体验一致性。
                   </p>
                 </div>
               </div>
@@ -635,31 +819,263 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
             )}
 
-            {/* 4. 关于 mypost Tab */}
+            {/* 5. 关于 mypost Tab */}
             {activeTab === 'about' && (
-              <div className="space-y-5 text-center py-4">
-                <div className="w-16 h-16 rounded-2xl bg-subtle border border-line flex items-center justify-center p-3 shadow-xl mx-auto">
-                  <img src="./icon.svg" alt="mypost logo" className="w-full h-full object-contain" />
+              <div className="space-y-5 text-left py-1">
+                {/* Brand Header */}
+                <div className="flex items-center gap-4 p-4 rounded-2xl bg-subtle/50 border border-line">
+                  <div className="w-14 h-14 rounded-2xl bg-surface border border-line flex items-center justify-center p-2.5 shadow-lg shrink-0">
+                    <img src="./icon.svg" alt="mypost logo" className="w-full h-full object-contain" />
+                  </div>
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="text-base font-extrabold text-foreground">mypost 桌面工作台</h3>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-accent/15 text-accent border border-accent/30">
+                        v{APP_VERSION}
+                      </span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                        <span>纯本地离线版</span>
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-400 mt-1 leading-relaxed">
+                      专为个人开发者量身打造的轻量、专注、纯本地 API 研发与调试工作台。无需登录，数据本地明文存储，天然拥抱 Git 协同。
+                    </p>
+                  </div>
                 </div>
 
+                {/* 1. GitHub 官方开源仓库卡片 */}
+                <div className="p-4 rounded-xl bg-subtle/40 border border-line flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-surface border border-line flex items-center justify-center text-foreground shrink-0 shadow-xs">
+                      {/* GitHub Official SVG Icon */}
+                      <svg className="w-5 h-5 fill-current" viewBox="0 0 24 24">
+                        <path fillRule="evenodd" clipRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" />
+                      </svg>
+                    </div>
+                    <div>
+                      <div className="font-bold text-xs text-foreground flex items-center gap-1.5">
+                        <span>GitHub 开源仓库</span>
+                        <span className="text-[10px] text-gray-400 font-mono">Tiane-ira/my-post</span>
+                      </div>
+                      <div className="text-[11px] text-gray-400 mt-0.5">
+                        欢迎 Star 关注动态、提交 Issue 反馈缺陷或发起 Pull Request
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => handleCopy(GITHUB_REPO_URL, 'github', 'GitHub 仓库地址')}
+                      className="px-2.5 py-1.5 rounded-lg border border-line bg-surface hover:bg-hover text-gray-300 hover:text-foreground text-xs flex items-center gap-1 transition"
+                      title="复制仓库链接"
+                    >
+                      {copiedKey === 'github' ? (
+                        <Check className="w-3.5 h-3.5 text-emerald-400" />
+                      ) : (
+                        <Copy className="w-3.5 h-3.5" />
+                      )}
+                      <span>{copiedKey === 'github' ? '已复制' : '复制地址'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleOpenGithub}
+                      className="px-3 py-1.5 rounded-lg bg-accent hover:bg-accent-hover text-white text-xs font-semibold flex items-center gap-1.5 transition shadow-sm"
+                      title="在浏览器中访问 GitHub 仓库"
+                    >
+                      <span>访问 GitHub</span>
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* 2. 软件版本更新与检测卡片 */}
+                <div className="p-4 rounded-xl bg-subtle/40 border border-line space-y-3.5">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <div className="flex items-center gap-2">
+                      <RefreshCw className={`w-4 h-4 text-accent ${isCheckingUpdate ? 'animate-spin' : ''}`} />
+                      <span className="font-bold text-xs text-foreground">软件版本与更新检测</span>
+                      <span className="text-[10px] text-gray-400 font-mono bg-surface px-1.5 py-0.5 rounded border border-line">
+                        当前: v{APP_VERSION}
+                      </span>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleManualCheckUpdate}
+                      disabled={isCheckingUpdate}
+                      className="px-3 py-1.5 rounded-lg bg-surface hover:bg-hover border border-line text-xs font-semibold text-foreground flex items-center gap-1.5 transition disabled:opacity-50 shadow-xs"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 text-accent ${isCheckingUpdate ? 'animate-spin' : ''}`} />
+                      <span>{isCheckingUpdate ? '正在检查...' : '检查更新'}</span>
+                    </button>
+                  </div>
+
+                  {/* 自动检测开关 (默认关闭) */}
+                  <div className="flex items-center justify-between p-3 rounded-lg bg-surface/60 border border-line text-xs">
+                    <div className="pr-4 space-y-0.5">
+                      <div className="font-semibold text-foreground flex items-center gap-1.5">
+                        <span>启动应用时自动检测新版本更新</span>
+                        <span className="px-1.5 py-0.2 rounded text-[10px] bg-subtle text-gray-400 font-normal">默认关闭</span>
+                      </div>
+                      <div className="text-[11px] text-gray-400 leading-relaxed">
+                        开启后，每次冷启动将静默查询 GitHub Releases；关闭状态下完全不发起任何网络检查，彻底保障离线静默体验。
+                      </div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                      <input
+                        type="checkbox"
+                        checked={autoCheckUpdates}
+                        onChange={(e) => handleToggleAutoCheck(e.target.checked)}
+                        className="sr-only peer"
+                      />
+                      <div className="w-9 h-5 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-accent"></div>
+                    </label>
+                  </div>
+
+                  {/* 检测结果反馈卡片 */}
+                  {isCheckingUpdate ? (
+                    <div className="p-3 rounded-lg bg-surface border border-accent/30 text-xs flex items-center gap-2 text-accent animate-pulse">
+                      <RefreshCw className="w-4 h-4 animate-spin shrink-0" />
+                      <span>正在连接 GitHub Releases 查询最新版本信息...</span>
+                    </div>
+                  ) : updateResult ? (
+                    updateResult.hasUpdate ? (
+                      /* 发现新版本 */
+                      <div className="p-3.5 rounded-xl bg-accent/10 border border-accent/30 space-y-2.5 animate-in fade-in">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2 font-bold text-xs text-accent">
+                            <Sparkles className="w-4 h-4" />
+                            <span>发现可用新版本: v{updateResult.latestVersion}</span>
+                          </div>
+                          {updateResult.publishedAt && (
+                            <span className="text-[10px] text-gray-400 font-mono">
+                              发布于: {new Date(updateResult.publishedAt).toLocaleDateString()}
+                            </span>
+                          )}
+                        </div>
+
+                        {updateResult.releaseNotes && (
+                          <div className="text-[11px] text-gray-300 bg-surface/80 p-2.5 rounded-lg border border-line max-h-32 overflow-y-auto whitespace-pre-wrap font-mono leading-relaxed select-text">
+                            {updateResult.releaseNotes}
+                          </div>
+                        )}
+
+                        <div className="flex items-center gap-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenRelease(updateResult.downloadUrl || updateResult.releaseUrl)}
+                            className="px-3 py-1.5 rounded-lg bg-accent hover:bg-accent-hover text-white text-xs font-semibold flex items-center gap-1.5 transition shadow-sm"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                            <span>前往 GitHub 下载更新</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleOpenRelease(updateResult.releaseUrl)}
+                            className="px-3 py-1.5 rounded-lg bg-surface hover:bg-hover border border-line text-xs text-gray-300 hover:text-foreground flex items-center gap-1 transition"
+                          >
+                            <span>查看更新日志</span>
+                            <ExternalLink className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </div>
+                    ) : updateResult.success ? (
+                      /* 已是最新版本 */
+                      <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-xs flex items-center justify-between text-emerald-400">
+                        <div className="flex items-center gap-2">
+                          <CheckCircle2 className="w-4 h-4 shrink-0" />
+                          <span>太棒了！当前已是最新版本 (v{APP_VERSION})</span>
+                        </div>
+                        <span className="text-[10px] text-gray-400 font-mono">刚刚检查</span>
+                      </div>
+                    ) : (
+                      /* 检查失败 / 离线 */
+                      <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-xs flex items-center justify-between gap-2 text-rose-400">
+                        <div className="flex items-center gap-2">
+                          <AlertCircle className="w-4 h-4 shrink-0" />
+                          <span>{updateResult.error || '检查更新失败，请确认网络连接'}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleManualCheckUpdate}
+                          className="px-2 py-1 rounded bg-surface hover:bg-hover border border-rose-500/30 text-rose-300 text-[11px] font-medium"
+                        >
+                          重试
+                        </button>
+                      </div>
+                    )
+                  ) : (
+                    /* 初始空闲状态 */
+                    <div className="text-[11px] text-gray-400 flex items-center justify-between px-1">
+                      <span>可点击右上角“检查更新”按钮即时检测 GitHub 最新版本</span>
+                      <span className="font-mono text-[10px]">
+                        上次检测: {lastCheckedTime ? new Date(lastCheckedTime).toLocaleString() : '暂未检查'}
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* 3. 核心能力与特色亮点 */}
                 <div>
-                  <h3 className="text-base font-extrabold text-foreground">mypost 桌面工作台</h3>
-                  <p className="text-xs text-gray-400 font-mono mt-0.5">Version 2026.10.24 (Release Build)</p>
+                  <div className="text-xs font-bold text-gray-300 mb-2.5">核心架构与能力矩阵</div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+                    <div className="p-3 rounded-xl bg-subtle/50 border border-line space-y-1">
+                      <div className="font-semibold text-foreground flex items-center gap-1.5">
+                        <Activity className="w-3.5 h-3.5 text-orange-400" />
+                        <span>全协议栈通信支持</span>
+                      </div>
+                      <div className="text-[11px] text-gray-400 leading-relaxed">
+                        完整支持 HTTP/HTTPS 常见方法、SSE 流式事件帧与全双工 WebSocket 长连接实时通信。
+                      </div>
+                    </div>
+
+                    <div className="p-3 rounded-xl bg-subtle/50 border border-line space-y-1">
+                      <div className="font-semibold text-foreground flex items-center gap-1.5">
+                        <HardDrive className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>纯本地数据隐私</span>
+                      </div>
+                      <div className="text-[11px] text-gray-400 leading-relaxed">
+                        零云端依赖与遥测追踪，明文结构化 JSON 本地存储，天生拥抱 Git 版本管理与团队协同。
+                      </div>
+                    </div>
+
+                    <div className="p-3 rounded-xl bg-subtle/50 border border-line space-y-1">
+                      <div className="font-semibold text-foreground flex items-center gap-1.5">
+                        <Zap className="w-3.5 h-3.5 text-sky-400" />
+                        <span>目录继承与参数补全</span>
+                      </div>
+                      <div className="text-[11px] text-gray-400 leading-relaxed">
+                        祖先目录参数与 Headers 自顶向下继承，内置数十种常见 Header 规范键与值候选智能补全。
+                      </div>
+                    </div>
+
+                    <div className="p-3 rounded-xl bg-subtle/50 border border-line space-y-1">
+                      <div className="font-semibold text-foreground flex items-center gap-1.5">
+                        <Globe className="w-3.5 h-3.5 text-purple-400" />
+                        <span>局域网免密在线分享</span>
+                      </div>
+                      <div className="text-[11px] text-gray-400 leading-relaxed">
+                        内置轻量极速 HTTP 静态分享引擎，一键生成美化在线文档，便于跨设备与局域网移动端自测。
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
-                <p className="text-xs text-gray-300 max-w-md mx-auto leading-relaxed">
-                  专为个人打造的纯本地 API 调试与管理工具。无需登录与网络，数据本地明文 JSON 存储，支持 HTTP、SSE 与 WebSocket 全协议通信。
-                </p>
-
-                <div className="max-w-md mx-auto p-3.5 rounded-xl bg-subtle/50 border border-line text-xs grid grid-cols-2 gap-2 text-left">
+                {/* 4. 技术栈规格一览 */}
+                <div className="p-3.5 rounded-xl bg-subtle/50 border border-line text-xs grid grid-cols-2 gap-2 text-left">
                   <div className="text-gray-400">运行内核:</div>
-                  <div className="text-gray-200 font-mono">Electron + Node.js</div>
+                  <div className="text-gray-200 font-mono">Electron + Node.js (原生 IPC 流式中继桥接)</div>
                   <div className="text-gray-400">前端技术栈:</div>
-                  <div className="text-gray-200 font-mono">React 19 + TypeScript + Vite</div>
-                  <div className="text-gray-400">通信协议支持:</div>
-                  <div className="text-gray-200 font-mono">HTTP / HTTPS / SSE / WebSocket</div>
+                  <div className="text-gray-200 font-mono">React 19 + TypeScript + Vite + Tailwind CSS</div>
                   <div className="text-gray-400">本地存储架构:</div>
-                  <div className="text-gray-200 font-mono">纯本地结构化 JSON (支持 Git 协同)</div>
+                  <div className="text-gray-200 font-mono">纯本地结构化 JSON (支持直接提交至 Git)</div>
+                  <div className="text-gray-400">开源协议:</div>
+                  <div className="text-gray-200 font-mono">MIT Open Source License</div>
                   <div className="text-gray-400">运行状态与隐私:</div>
                   <div className="text-emerald-400 font-semibold flex items-center gap-1">
                     <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>

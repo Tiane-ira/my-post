@@ -12,7 +12,6 @@ import {
   Zap,
   Share2,
   Clock,
-  Sparkles,
   ChevronDown,
   ChevronUp,
   ChevronRight,
@@ -32,15 +31,19 @@ import {
   Activity,
   HardDrive,
   FileText,
+  Folder,
 } from 'lucide-react';
 import { ApiDetail, ApiTreeNode, KeyValueItem, WebSocketConfig } from '../../../common/types';
 import { ParamUtils } from '../../../common/paramUtils';
 import { UrlUtils } from '../../../common/urlUtils';
+import { DataImporters } from '../../../common/importers';
 import { VariableItem, VariableInput } from './VariableInput';
 import { KeyValueTable } from './KeyValueTable';
 import { Tooltip } from './Tooltip';
 import { useFeedback } from './FeedbackContext';
 import { JsonCodeEditor } from './JsonCodeEditor';
+import { CodeDrawer } from './CodeDrawer';
+import { MoveToModal } from './MoveToModal';
 
 export interface WsMessageItem {
   id: string;
@@ -102,6 +105,7 @@ interface WebSocketWorkbenchProps {
   globalVars?: Record<string, string>;
   treeItems?: ApiTreeNode[];
   folderDetails?: Record<string, any>;
+  onMoveApi?: (targetId: string, newParentId: string) => Promise<void> | void;
 }
 
 export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
@@ -117,13 +121,29 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
   globalVars = {},
   treeItems = [],
   folderDetails = {},
+  onMoveApi,
 }) => {
   const { toast } = useFeedback();
+  const [isMoveModalOpen, setIsMoveModalOpen] = useState(false);
+
+  const isItemChecked = (item: any): boolean => {
+    if (!item || typeof item !== 'object') return false;
+    return item.is_checked === undefined || item.is_checked === 1 || (item.is_checked as any) === true || (item.is_checked as any) === '1';
+  };
 
   // Compute all implicit / inherited parameters from parent folders, Auth, and system defaults
   const { headers: inheritedHeaders, query: inheritedQuery } = React.useMemo(() => {
     return ParamUtils.computeImplicitParams(api, treeItems, folderDetails, { isWs: true });
   }, [api, treeItems, folderDetails]);
+
+  // Current folder name lookup
+  const currentFolderName = React.useMemo(() => {
+    const treeNode = (treeItems || []).find((t) => t.target_id === api.target_id);
+    const parentId = (treeNode && treeNode.parent_id !== undefined) ? treeNode.parent_id : (api.parent_id || '0');
+    if (!parentId || parentId === '0') return '根目录';
+    const parentNode = (treeItems || []).find((t) => t.target_id === parentId);
+    return parentNode?.name || '指定目录';
+  }, [api.target_id, api.parent_id, treeItems]);
 
   // Connection State
   const [status, setStatus] = useState<'disconnected' | 'connecting' | 'connected' | 'error'>('disconnected');
@@ -132,6 +152,7 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
   const [connectedTime, setConnectedTime] = useState<number | null>(null);
   const [elapsedDuration, setElapsedDuration] = useState('00:00');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isCodeDrawerOpen, setIsCodeDrawerOpen] = useState(false);
 
   // Protocols & Heartbeat configuration (persisted to api.websocket)
   const [protocolsInput, setProtocolsInput] = useState<string>(api.websocket?.protocols || '');
@@ -242,7 +263,7 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
   };
 
   // UI & Filters
-  const [activeTab, setActiveTab] = useState<'params' | 'headers' | 'protocols' | 'heartbeat'>('params');
+  const [activeTab, setActiveTab] = useState<'headers' | 'params' | 'path' | 'protocols' | 'heartbeat'>('headers');
   const [activeResponseTab, setActiveResponseTab] = useState<'messages' | 'connection'>('messages');
   const [filterText, setFilterText] = useState('');
   const [filterOnly, setFilterOnly] = useState(false);
@@ -332,10 +353,85 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
     () => (api.request?.query?.parameter || []).filter((p) => p.is_checked === 1 && p.key).length,
     [api.request?.query?.parameter]
   );
+  const pathCount = useMemo(
+    () => (api.request?.path?.parameter || []).filter((p) => isItemChecked(p) && p.key).length,
+    [api.request?.path?.parameter]
+  );
   const headersCount = useMemo(
     () => (api.request?.header?.parameter || []).filter((h) => h.is_checked === 1 && h.key).length,
     [api.request?.header?.parameter]
   );
+
+  // Bi-directional synchronizers between URL and parameters
+  const handleUrlChange = (newUrl: string) => {
+    if (DataImporters.isCurl(newUrl)) {
+      try {
+        const parsedApi = DataImporters.curlToApiDetail(newUrl, api, wsPreUrl);
+        onChange({
+          ...parsedApi,
+          target_type: 'websocket',
+        });
+        return;
+      } catch (err: any) {
+        console.error('Failed to parse curl from input in websocket:', err);
+      }
+    }
+
+    const currentQuery = api.request?.query?.parameter || [];
+    const currentPath = api.request?.path?.parameter || [];
+    const { cleanUrl, queryParams } = UrlUtils.syncUrlToParams(newUrl, currentQuery);
+    const pathParams = UrlUtils.extractPathParams(cleanUrl, currentPath);
+
+    onChange({
+      ...api,
+      url: cleanUrl,
+      request: {
+        ...api.request,
+        query: { ...api.request?.query, parameter: queryParams },
+        path: { ...api.request?.path, parameter: pathParams },
+      },
+    });
+  };
+
+  const handleUrlPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const pastedText = e.clipboardData.getData('text');
+    if (DataImporters.isCurl(pastedText)) {
+      e.preventDefault();
+      try {
+        const parsedApi = DataImporters.curlToApiDetail(pastedText, api, wsPreUrl);
+        onChange({
+          ...parsedApi,
+          target_type: 'websocket',
+        });
+      } catch (err: any) {
+        console.error('Failed to parse pasted curl in websocket:', err);
+      }
+    }
+  };
+
+  const handleQueryParamsChange = (items: KeyValueItem[]) => {
+    const cleanUrl = (api.url || '').split('?')[0];
+    onChange({
+      ...api,
+      url: cleanUrl,
+      request: {
+        ...api.request,
+        query: { ...api.request?.query, parameter: items },
+      },
+    });
+  };
+
+  const handlePathParamsChange = (items: KeyValueItem[]) => {
+    const newUrl = UrlUtils.syncPathParamsToUrl(api.url || '', items, api.request?.path?.parameter || []);
+    onChange({
+      ...api,
+      url: newUrl,
+      request: {
+        ...api.request,
+        path: { ...api.request?.path, parameter: items },
+      },
+    });
+  };
 
   const wsRef = useRef<WebSocket | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -415,6 +511,39 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
     setStatus('disconnected');
     setCumulativeStats({ sent: 0, recv: 0, total: 0 });
 
+    if (api?.url && api.url.includes('?')) {
+      const currentQuery = api.request?.query?.parameter || [];
+      const currentPath = api.request?.path?.parameter || [];
+      const { cleanUrl, queryParams } = UrlUtils.syncUrlToParams(api.url, currentQuery);
+      const pathParams = UrlUtils.extractPathParams(cleanUrl, currentPath);
+      onChange({
+        ...api,
+        url: cleanUrl,
+        request: {
+          ...api.request,
+          query: { ...api.request?.query, parameter: queryParams },
+          path: { ...api.request?.path, parameter: pathParams },
+        },
+      });
+      return;
+    }
+
+    if (api?.url) {
+      const currentPath = api.request?.path?.parameter || [];
+      const extracted = UrlUtils.extractPathParams(api.url, currentPath);
+      const keysExtracted = extracted.map((p) => p.key).sort().join(',');
+      const keysCurrent = currentPath.map((p) => p.key).sort().join(',');
+      if (keysExtracted !== keysCurrent) {
+        onChange({
+          ...api,
+          request: {
+            ...api.request,
+            path: { ...api.request?.path, parameter: extracted },
+          },
+        });
+      }
+    }
+
     return () => {
       if (wsRef.current) {
         wsRef.current.close(1000, 'Component unmounted');
@@ -434,24 +563,179 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
     return base;
   }, [preUrl]);
 
+  const allVars = React.useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const [k, v] of Object.entries(globalVars || {})) {
+      if (k) {
+        map[k] = v;
+        map[k.trim()] = v;
+      }
+    }
+    for (const [k, v] of Object.entries(availableVars || {})) {
+      if (k && v?.value !== undefined) {
+        map[k] = v.value;
+        map[k.trim()] = v.value;
+      }
+    }
+    for (const [k, v] of Object.entries(envVars || {})) {
+      if (k) {
+        map[k] = v;
+        map[k.trim()] = v;
+      }
+    }
+    return map;
+  }, [availableVars, globalVars, envVars]);
+
+  const interpolate = React.useCallback(
+    (val: string): string => {
+      if (!val || typeof val !== 'string') return val;
+      return val.replace(/\{\{([^{}]+)\}\}/g, (match, key) => {
+        const k = key.trim();
+        if (allVars[k] !== undefined) return allVars[k];
+        if (allVars[key] !== undefined) return allVars[key];
+        return match;
+      });
+    },
+    [allVars]
+  );
+
   const resolveWsUrl = (rawUrl: string): string => {
     let finalUrl = (rawUrl || '').trim();
     if (!finalUrl) return '';
-
-    const allVars: Record<string, string> = {};
-    for (const [k, v] of Object.entries(availableVars || {})) {
-      allVars[k] = v.value;
-    }
-    for (const [k, v] of Object.entries(globalVars || {})) {
-      allVars[k] = v;
-    }
-    for (const [k, v] of Object.entries(envVars || {})) {
-      allVars[k] = v;
-    }
-    finalUrl = finalUrl.replace(/\{\{([^{}]+)\}\}/g, (_, key) => allVars[key.trim()] || `{{${key}}}`);
-
-    return UrlUtils.buildWsRequestUrl(finalUrl, wsPreUrl);
+    const { url: pathApplied } = UrlUtils.applyPathParams(finalUrl, api.request?.path?.parameter, interpolate);
+    return UrlUtils.buildWsRequestUrl(pathApplied, wsPreUrl);
   };
+
+  /**
+   * Constructs the full WebSocket connection URL including all path, inherited and direct query parameters,
+   * with optional placeholder variable interpolation.
+   */
+  const buildFullWsUrl = React.useCallback(
+    (withInterpolation = true): string => {
+      const rawUrl = (api.url || '').trim();
+      if (!rawUrl) return '';
+
+      const interpFn = withInterpolation ? interpolate : (v: string) => v;
+      const { url: pathApplied } = UrlUtils.applyPathParams(
+        rawUrl,
+        api.request?.path?.parameter,
+        interpFn
+      );
+
+      let baseResolved = UrlUtils.buildWsRequestUrl(pathApplied, wsPreUrl);
+
+      if (baseResolved && !baseResolved.startsWith('ws://') && !baseResolved.startsWith('wss://')) {
+        if (baseResolved.startsWith('http://')) baseResolved = 'ws://' + baseResolved.slice(7);
+        else if (baseResolved.startsWith('https://')) baseResolved = 'wss://' + baseResolved.slice(8);
+        else baseResolved = 'ws://' + baseResolved.replace(/^\/+/, '');
+      }
+
+      try {
+        const [cleanBaseWs, existingQuery] = baseResolved.split('?', 2);
+        const urlObj = new URL(cleanBaseWs);
+
+        const directQueryParams = api.request?.query?.parameter || [];
+
+        // If base URL had query string, retain any query params not already present with exact key & val in direct or inherited params
+        if (existingQuery) {
+          const sp = new URLSearchParams(existingQuery);
+          sp.forEach((val, key) => {
+            const hasInDirect = directQueryParams.some(
+              (p) => isItemChecked(p) && p.key === key && (p.value || '') === val
+            );
+            const hasInInherited = inheritedQuery.some(
+              (p) => !p.overridden && p.key === key && (p.value || '') === val
+            );
+            if (!hasInDirect && !hasInInherited) {
+              urlObj.searchParams.append(key, val);
+            }
+          });
+        }
+
+        // Append inherited query params first (if not overridden)
+        for (const inh of inheritedQuery) {
+          if (!inh.overridden && inh.key) {
+            const k = withInterpolation ? interpolate(inh.key) : inh.key;
+            const v = withInterpolation ? interpolate(inh.value || '') : (inh.value || '');
+            urlObj.searchParams.append(k, v);
+          }
+        }
+
+        // Direct query params (supports multi-value array params)
+        for (const p of directQueryParams) {
+          if (isItemChecked(p) && p.key) {
+            const k = withInterpolation ? interpolate(p.key) : p.key;
+            const v = withInterpolation ? interpolate(p.value || '') : (p.value || '');
+
+            if ((p.data_type === 'array' || p.type === 'array') && v.startsWith('[') && v.endsWith(']')) {
+              try {
+                const parsed = JSON.parse(v);
+                if (Array.isArray(parsed)) {
+                  for (const elem of parsed) {
+                    urlObj.searchParams.append(k, String(elem));
+                  }
+                  continue;
+                }
+              } catch {}
+            }
+
+            urlObj.searchParams.append(k, v);
+          }
+        }
+
+        // Auth ApiKey in query
+        const auth = api.request?.auth;
+        if (auth?.type === 'apikey' && auth.apikey?.key && auth.apikey?.value) {
+          if (auth.apikey.in === 'query') {
+            const k = withInterpolation ? interpolate(auth.apikey.key) : auth.apikey.key;
+            const v = withInterpolation ? interpolate(auth.apikey.value) : auth.apikey.value;
+            urlObj.searchParams.append(k, v);
+          }
+        }
+
+        return urlObj.toString();
+      } catch {
+        const [cleanFallback] = baseResolved.split('?', 2);
+        let fallback = cleanFallback;
+        const extraPairs: string[] = [];
+        for (const inh of inheritedQuery) {
+          if (!inh.overridden && inh.key) {
+            const k = withInterpolation ? interpolate(inh.key) : inh.key;
+            const v = withInterpolation ? interpolate(inh.value || '') : (inh.value || '');
+            extraPairs.push(`${encodeURIComponent(k)}=${encodeURIComponent(v)}`);
+          }
+        }
+        for (const p of (api.request?.query?.parameter || [])) {
+          if (isItemChecked(p) && p.key) {
+            const k = withInterpolation ? interpolate(p.key) : p.key;
+            const v = withInterpolation ? interpolate(p.value || '') : (p.value || '');
+            if ((p.data_type === 'array' || p.type === 'array') && v.startsWith('[') && v.endsWith(']')) {
+              try {
+                const parsed = JSON.parse(v);
+                if (Array.isArray(parsed)) {
+                  for (const elem of parsed) {
+                    extraPairs.push(`${encodeURIComponent(k)}=${encodeURIComponent(String(elem))}`);
+                  }
+                  continue;
+                }
+              } catch {}
+            }
+            extraPairs.push(`${encodeURIComponent(k)}=${encodeURIComponent(v)}`);
+          }
+        }
+        if (extraPairs.length > 0) {
+          fallback += '?' + extraPairs.join('&');
+        }
+        return fallback;
+      }
+    },
+    [api.url, api.request?.path?.parameter, api.request?.query?.parameter, api.request?.auth, wsPreUrl, inheritedQuery, interpolate]
+  );
+
+  // Merged API representation with inherited parameters for accurate code generation
+  const mergedApiForCode = React.useMemo(() => {
+    return ParamUtils.mergeApiWithFolderParams(api, treeItems, folderDetails);
+  }, [api, treeItems, folderDetails]);
 
   // Flush queued incoming messages into React state in a high-efficiency RAF batch without frame limit
   const flushIncomingQueue = () => {
@@ -519,7 +803,6 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
     }
   };
 
-
   const handleConnect = () => {
     if (status === 'connected' || status === 'connecting') {
       if (wsRef.current) {
@@ -531,7 +814,7 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
     }
 
     setErrorMessage(null);
-    let resolved = resolveWsUrl(api.url);
+    const resolved = buildFullWsUrl(true);
     if (!resolved || (!resolved.startsWith('ws://') && !resolved.startsWith('wss://'))) {
       toast.error('请输入有效的 WebSocket 地址 (ws:// 或 wss://)');
       return;
@@ -546,32 +829,11 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
     setActiveMatchIndex(0);
     setDirectionFilter('all');
 
-    try {
-      const urlObj = new URL(resolved);
-
-      // Append inherited query params first (if not overridden)
-      for (const inh of inheritedQuery) {
-        if (!inh.overridden && inh.key) {
-          urlObj.searchParams.append(inh.key, inh.value || '');
-        }
-      }
-
-      const queryParams = api.request?.query?.parameter || [];
-      for (const p of queryParams) {
-        if (p.is_checked === 1 && p.key) {
-          urlObj.searchParams.append(p.key, p.value || '');
-        }
-      }
-      resolved = urlObj.toString();
-    } catch {
-      // If URL parsing fails, keep resolved string
-    }
-
     setStatus('connecting');
     appendMessage('system', `正在尝试连接至 ${resolved}...`, 'info');
 
     try {
-      const protocols = protocolsInput
+      const protocols = interpolate(protocolsInput)
         .split(',')
         .map((p) => p.trim())
         .filter(Boolean);
@@ -626,20 +888,11 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
     }
 
     try {
-      wsRef.current.send(inputMessage);
-      appendMessage('send', inputMessage);
+      const msgToSend = interpolate(inputMessage);
+      wsRef.current.send(msgToSend);
+      appendMessage('send', msgToSend);
     } catch (err: any) {
       toast.error(`发送失败: ${err.message || err}`);
-    }
-  };
-
-  const handleFormatJson = () => {
-    try {
-      const parsed = JSON.parse(inputMessage);
-      setInputMessage(JSON.stringify(parsed, null, 2));
-      toast.success('JSON 已美化');
-    } catch {
-      toast.error('当前内容不是有效的 JSON 格式');
     }
   };
 
@@ -764,7 +1017,7 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
     <div className="flex-1 flex flex-col h-full overflow-hidden bg-canvas select-none">
       {/* Top Bar: Name & Actions */}
       <div className="h-11 px-4 border-b border-line flex items-center justify-between bg-subtle shrink-0">
-        <div className="flex items-center gap-3 w-1/2">
+        <div className="flex items-center gap-2.5 max-w-[65%]">
           <input
             type="text"
             value={api.name || ''}
@@ -776,30 +1029,67 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
               }
             }}
             placeholder="WebSocket 接口名称"
-            className="bg-transparent border-none text-sm font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-accent px-2 py-0.5 rounded flex-1"
+            className="bg-transparent border-none text-sm font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-accent px-2 py-0.5 rounded flex-1 min-w-[120px]"
           />
+          {onMoveApi && (
+            <button
+              type="button"
+              onClick={() => setIsMoveModalOpen(true)}
+              className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs bg-canvas/60 hover:bg-hover border border-line text-gray-400 hover:text-foreground transition group shrink-0"
+              title="当前所属目录 (点击更换目录)"
+            >
+              <Folder className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              <span className="max-w-[130px] truncate">{currentFolderName}</span>
+              <ChevronDown className="w-3 h-3 text-gray-500 group-hover:text-foreground shrink-0" />
+            </button>
+          )}
         </div>
 
-        {/* Right Action Icons (Save As, Share) */}
+        {/* Right Action Icons (Save As, Share, Code Drawer) */}
         <div className="flex items-center gap-1.5 text-xs">
           {onSaveAs && (
-            <button
-              onClick={onSaveAs}
-              className="p-1.5 hover:bg-hover rounded text-gray-400 hover:text-foreground transition flex items-center gap-1"
-              title="另存为 (Save As)"
-            >
-              <BookmarkPlus className="w-4 h-4" />
-            </button>
+            <Tooltip content="另存为 (复制为新接口)" delayMs={400}>
+              <button
+                type="button"
+                onClick={onSaveAs}
+                className="p-1.5 hover:bg-hover rounded-lg border border-line text-gray-400 hover:text-foreground transition flex items-center justify-center"
+                aria-label="另存为"
+              >
+                <BookmarkPlus className="w-4 h-4" />
+              </button>
+            </Tooltip>
           )}
+
           {onOpenShare && (
-            <button
-              onClick={onOpenShare}
-              className="p-1.5 hover:bg-hover rounded text-gray-400 hover:text-foreground transition flex items-center gap-1"
-              title="分享接口"
-            >
-              <Share2 className="w-4 h-4" />
-            </button>
+            <Tooltip content="生成局域网免登录在线分享文档" delayMs={400}>
+              <button
+                type="button"
+                onClick={onOpenShare}
+                className="p-1.5 hover:bg-hover rounded-lg border border-line text-gray-400 hover:text-foreground transition flex items-center justify-center"
+                aria-label="分享接口"
+              >
+                <Share2 className="w-4 h-4" />
+              </button>
+            </Tooltip>
           )}
+
+          <Tooltip
+            content={isCodeDrawerOpen ? '收起代码侧边栏' : '生成客户端代码 (右侧抽屉)'}
+            delayMs={400}
+          >
+            <button
+              type="button"
+              onClick={() => setIsCodeDrawerOpen(!isCodeDrawerOpen)}
+              className={`p-1.5 rounded-lg border transition flex items-center justify-center ${
+                isCodeDrawerOpen
+                  ? 'bg-accent/20 text-accent border-accent/40 shadow-sm'
+                  : 'bg-subtle hover:bg-hover border-line text-accent hover:text-accent-hover'
+              }`}
+              aria-label="生成客户端代码"
+            >
+              <Code2 className="w-4 h-4" />
+            </button>
+          </Tooltip>
         </div>
       </div>
 
@@ -820,7 +1110,8 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
           )}
           <VariableInput
             value={api.url || ''}
-            onChange={(newUrl) => onChange({ ...api, url: newUrl })}
+            onChange={handleUrlChange}
+            onPaste={handleUrlPaste}
             availableVars={availableVars}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
@@ -910,6 +1201,22 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
             <div className="h-9 px-3 bg-subtle border-b border-line flex items-center gap-1 text-xs select-none overflow-x-auto shrink-0">
               <button
                 type="button"
+                onClick={() => setActiveTab('headers')}
+                className={`px-3 py-1 rounded-md transition font-medium flex items-center gap-1 ${
+                  activeTab === 'headers'
+                    ? 'bg-accent/20 text-accent font-semibold'
+                    : 'text-gray-400 hover:text-foreground'
+                }`}
+              >
+                <span>Headers</span>
+                {headersCount > 0 && (
+                  <span className="ml-1 px-1 rounded-full text-[10px] bg-subtle text-accent">
+                    {headersCount}
+                  </span>
+                )}
+              </button>
+              <button
+                type="button"
                 onClick={() => setActiveTab('params')}
                 className={`px-3 py-1 rounded-md transition font-medium flex items-center gap-1 ${
                   activeTab === 'params'
@@ -926,17 +1233,17 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
               </button>
               <button
                 type="button"
-                onClick={() => setActiveTab('headers')}
+                onClick={() => setActiveTab('path')}
                 className={`px-3 py-1 rounded-md transition font-medium flex items-center gap-1 ${
-                  activeTab === 'headers'
+                  activeTab === 'path'
                     ? 'bg-accent/20 text-accent font-semibold'
                     : 'text-gray-400 hover:text-foreground'
                 }`}
               >
-                <span>Headers</span>
-                {headersCount > 0 && (
+                <span>Path</span>
+                {pathCount > 0 && (
                   <span className="ml-1 px-1 rounded-full text-[10px] bg-subtle text-accent">
-                    {headersCount}
+                    {pathCount}
                   </span>
                 )}
               </button>
@@ -972,25 +1279,6 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
 
             {/* Config Tab Body */}
             <div className="flex-1 p-3 overflow-y-auto min-h-0">
-              {activeTab === 'params' && (
-                <KeyValueTable
-                  items={api.request?.query?.parameter || []}
-                  onChange={(items) =>
-                    onChange({
-                      ...api,
-                      request: {
-                        ...api.request,
-                        query: { ...api.request?.query, parameter: items },
-                      },
-                    })
-                  }
-                  inheritedItems={inheritedQuery}
-                  keyPlaceholder="参数名 (Key)"
-                  valuePlaceholder="参数值 (Value)"
-                  availableVars={availableVars}
-                />
-              )}
-
               {activeTab === 'headers' && (
                 <KeyValueTable
                   items={api.request?.header?.parameter || []}
@@ -1006,6 +1294,28 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
                   inheritedItems={inheritedHeaders}
                   keyPlaceholder="请求头 (Header)"
                   valuePlaceholder="值 (Value)"
+                  availableVars={availableVars}
+                  showType={false}
+                />
+              )}
+
+              {activeTab === 'params' && (
+                <KeyValueTable
+                  items={api.request?.query?.parameter || []}
+                  onChange={handleQueryParamsChange}
+                  inheritedItems={inheritedQuery}
+                  keyPlaceholder="参数名 (Key)"
+                  valuePlaceholder="参数值 (Value)"
+                  availableVars={availableVars}
+                />
+              )}
+
+              {activeTab === 'path' && (
+                <KeyValueTable
+                  items={api.request?.path?.parameter || []}
+                  onChange={handlePathParamsChange}
+                  keyPlaceholder="参数名 (:id 或 {id})"
+                  valuePlaceholder="参数值 (Value)"
                   availableVars={availableVars}
                   showType={false}
                 />
@@ -1118,20 +1428,8 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
                   <ChevronDown className="w-3 h-3 text-gray-400 absolute right-1 pointer-events-none" />
                 </div>
               </div>
-
-              {/* Format JSON button if JSON mode */}
-              {messageMode === 'json' && (
-                <button
-                  type="button"
-                  onClick={handleFormatJson}
-                  className="h-6 px-2 rounded bg-surface hover:bg-hover border border-line text-gray-300 hover:text-white text-[11px] flex items-center gap-1 transition"
-                  title="美化 JSON 格式"
-                >
-                  <Sparkles className="w-3 h-3 text-amber-400" />
-                  <span>美化</span>
-                </button>
-              )}
             </div>
+
 
             {/* Composer Editor Area */}
             <div className="flex-1 min-h-0 p-2.5 overflow-hidden flex flex-col">
@@ -1320,7 +1618,7 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
                           onClick={handlePrevMatch}
                           disabled={matchedMessageIds.length === 0}
                           className="p-0.5 hover:bg-hover rounded text-gray-400 hover:text-white disabled:opacity-30 transition"
-                          title="上一个匹配 (Shift+Enter)"
+                          title="上一个匹配"
                         >
                           <ChevronUp className="w-3 h-3" />
                         </button>
@@ -1329,7 +1627,7 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
                           onClick={handleNextMatch}
                           disabled={matchedMessageIds.length === 0}
                           className="p-0.5 hover:bg-hover rounded text-gray-400 hover:text-white disabled:opacity-30 transition"
-                          title="下一个匹配 (Enter)"
+                          title="下一个匹配"
                         >
                           <ChevronDown className="w-3 h-3" />
                         </button>
@@ -1622,7 +1920,7 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
                     <button
                       type="button"
                       onClick={() => {
-                        const resolved = resolveWsUrl(api.url);
+                        const resolved = buildFullWsUrl(true);
                         navigator.clipboard.writeText(resolved);
                         setCopiedUrl(true);
                         setTimeout(() => setCopiedUrl(false), 2000);
@@ -1649,7 +1947,7 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
                   <div className="space-y-1">
                     <span className="text-gray-500 text-[11px]">实际连接 URL:</span>
                     <div className="font-mono text-accent bg-subtle p-2 rounded border border-line/50 break-all select-all">
-                      {resolveWsUrl(api.url) || '未指定地址'}
+                      {buildFullWsUrl(true) || '未指定地址'}
                     </div>
                   </div>
                   <div className="space-y-1">
@@ -1690,7 +1988,7 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
 
                 <div className="space-y-2">
                   <span className="text-xs text-gray-400 font-medium">URL 查询参数 (Query):</span>
-                  {api.request?.query?.parameter?.filter((p) => p.is_checked === 1 && p.key).length === 0 &&
+                  {(api.request?.query?.parameter || []).filter((p) => isItemChecked(p) && p.key).length === 0 &&
                   inheritedQuery.filter((q) => !q.overridden && q.key).length === 0 ? (
                     <div className="text-xs text-gray-500 italic p-2 bg-subtle/50 rounded">无查询参数</div>
                   ) : (
@@ -1700,28 +1998,66 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
                           <tr>
                             <th className="px-3 py-1.5 font-medium">参数名 (Key)</th>
                             <th className="px-3 py-1.5 font-medium">参数值 (Value)</th>
-                            <th className="px-3 py-1.5 font-medium w-24">来源</th>
+                            <th className="px-3 py-1.5 font-medium w-28">来源</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-line/40">
                           {inheritedQuery
                             .filter((q) => !q.overridden && q.key)
-                            .map((q, i) => (
-                              <tr key={`inh-q-${i}`} className="hover:bg-hover/40 font-mono text-[11px]">
-                                <td className="px-3 py-1.5 text-accent">{q.key}</td>
-                                <td className="px-3 py-1.5 text-gray-300">{q.value}</td>
-                                <td className="px-3 py-1.5 text-amber-400/80 font-sans text-[10px]">继承自父目录</td>
-                              </tr>
-                            ))}
+                            .map((q, i) => {
+                              const resolvedKey = interpolate(q.key);
+                              const resolvedVal = interpolate(q.value || '');
+                              const hasVar = resolvedVal !== q.value || resolvedKey !== q.key;
+
+                              return (
+                                <tr key={`inh-q-${i}`} className="hover:bg-hover/40 font-mono text-[11px]">
+                                  <td className="px-3 py-1.5 text-accent">{resolvedKey}</td>
+                                  <td className="px-3 py-1.5 text-gray-300">
+                                    {hasVar ? (
+                                      <div className="flex items-center gap-1.5 flex-wrap">
+                                        <span className="text-gray-400 font-sans text-[10px] bg-subtle px-1.5 py-0.5 rounded border border-line">
+                                          {q.value}
+                                        </span>
+                                        <span className="text-gray-500">→</span>
+                                        <span className="text-emerald-400 font-semibold">{resolvedVal}</span>
+                                      </div>
+                                    ) : (
+                                      resolvedVal || '<空>'
+                                    )}
+                                  </td>
+                                  <td className="px-3 py-1.5 text-amber-400/80 font-sans text-[10px]">
+                                    {q.sourceName || '继承自父目录'}
+                                  </td>
+                                </tr>
+                              );
+                            })}
                           {(api.request?.query?.parameter || [])
-                            .filter((p) => p.is_checked === 1 && p.key)
-                            .map((p, i) => (
-                              <tr key={`dir-q-${i}`} className="hover:bg-hover/40 font-mono text-[11px]">
-                                <td className="px-3 py-1.5 text-accent">{p.key}</td>
-                                <td className="px-3 py-1.5 text-gray-300">{p.value}</td>
-                                <td className="px-3 py-1.5 text-gray-500 font-sans text-[10px]">接口直接指定</td>
-                              </tr>
-                            ))}
+                            .filter((p) => isItemChecked(p) && p.key)
+                            .map((p, i) => {
+                              const resolvedKey = interpolate(p.key);
+                              const resolvedVal = interpolate(p.value || '');
+                              const hasVar = resolvedVal !== p.value || resolvedKey !== p.key;
+
+                              return (
+                                <tr key={`dir-q-${i}`} className="hover:bg-hover/40 font-mono text-[11px]">
+                                  <td className="px-3 py-1.5 text-accent">{resolvedKey}</td>
+                                  <td className="px-3 py-1.5 text-gray-300">
+                                    {hasVar ? (
+                                      <div className="flex items-center gap-1.5 flex-wrap">
+                                        <span className="text-gray-400 font-sans text-[10px] bg-subtle px-1.5 py-0.5 rounded border border-line">
+                                          {p.value}
+                                        </span>
+                                        <span className="text-gray-500">→</span>
+                                        <span className="text-emerald-400 font-semibold">{resolvedVal}</span>
+                                      </div>
+                                    ) : (
+                                      resolvedVal || '<空>'
+                                    )}
+                                  </td>
+                                  <td className="px-3 py-1.5 text-gray-500 font-sans text-[10px]">接口直接指定</td>
+                                </tr>
+                              );
+                            })}
                         </tbody>
                       </table>
                     </div>
@@ -1730,7 +2066,7 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
 
                 <div className="space-y-2 pt-2">
                   <span className="text-xs text-gray-400 font-medium">请求头 (Headers):</span>
-                  {api.request?.header?.parameter?.filter((h) => h.is_checked === 1 && h.key).length === 0 &&
+                  {(api.request?.header?.parameter || []).filter((h) => isItemChecked(h) && h.key).length === 0 &&
                   inheritedHeaders.filter((h) => !h.overridden && h.key).length === 0 ? (
                     <div className="text-xs text-gray-500 italic p-2 bg-subtle/50 rounded">无自定义请求头</div>
                   ) : (
@@ -1740,28 +2076,66 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
                           <tr>
                             <th className="px-3 py-1.5 font-medium">Header 名</th>
                             <th className="px-3 py-1.5 font-medium">Header 值</th>
-                            <th className="px-3 py-1.5 font-medium w-24">来源</th>
+                            <th className="px-3 py-1.5 font-medium w-28">来源</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-line/40">
                           {inheritedHeaders
                             .filter((h) => !h.overridden && h.key)
-                            .map((h, i) => (
-                              <tr key={`inh-h-${i}`} className="hover:bg-hover/40 font-mono text-[11px]">
-                                <td className="px-3 py-1.5 text-accent">{h.key}</td>
-                                <td className="px-3 py-1.5 text-gray-300">{h.value}</td>
-                                <td className="px-3 py-1.5 text-amber-400/80 font-sans text-[10px]">继承自父目录</td>
-                              </tr>
-                            ))}
+                            .map((h, i) => {
+                              const resolvedKey = interpolate(h.key);
+                              const resolvedVal = interpolate(h.value || '');
+                              const hasVar = resolvedVal !== h.value || resolvedKey !== h.key;
+
+                              return (
+                                <tr key={`inh-h-${i}`} className="hover:bg-hover/40 font-mono text-[11px]">
+                                  <td className="px-3 py-1.5 text-accent">{resolvedKey}</td>
+                                  <td className="px-3 py-1.5 text-gray-300">
+                                    {hasVar ? (
+                                      <div className="flex items-center gap-1.5 flex-wrap">
+                                        <span className="text-gray-400 font-sans text-[10px] bg-subtle px-1.5 py-0.5 rounded border border-line">
+                                          {h.value}
+                                        </span>
+                                        <span className="text-gray-500">→</span>
+                                        <span className="text-emerald-400 font-semibold">{resolvedVal}</span>
+                                      </div>
+                                    ) : (
+                                      resolvedVal || '<空>'
+                                    )}
+                                  </td>
+                                  <td className="px-3 py-1.5 text-amber-400/80 font-sans text-[10px]">
+                                    {h.sourceName || '继承自父目录'}
+                                  </td>
+                                </tr>
+                              );
+                            })}
                           {(api.request?.header?.parameter || [])
-                            .filter((h) => h.is_checked === 1 && h.key)
-                            .map((h, i) => (
-                              <tr key={`dir-h-${i}`} className="hover:bg-hover/40 font-mono text-[11px]">
-                                <td className="px-3 py-1.5 text-accent">{h.key}</td>
-                                <td className="px-3 py-1.5 text-gray-300">{h.value}</td>
-                                <td className="px-3 py-1.5 text-gray-500 font-sans text-[10px]">接口直接指定</td>
-                              </tr>
-                            ))}
+                            .filter((h) => isItemChecked(h) && h.key)
+                            .map((h, i) => {
+                              const resolvedKey = interpolate(h.key);
+                              const resolvedVal = interpolate(h.value || '');
+                              const hasVar = resolvedVal !== h.value || resolvedKey !== h.key;
+
+                              return (
+                                <tr key={`dir-h-${i}`} className="hover:bg-hover/40 font-mono text-[11px]">
+                                  <td className="px-3 py-1.5 text-accent">{resolvedKey}</td>
+                                  <td className="px-3 py-1.5 text-gray-300">
+                                    {hasVar ? (
+                                      <div className="flex items-center gap-1.5 flex-wrap">
+                                        <span className="text-gray-400 font-sans text-[10px] bg-subtle px-1.5 py-0.5 rounded border border-line">
+                                          {h.value}
+                                        </span>
+                                        <span className="text-gray-500">→</span>
+                                        <span className="text-emerald-400 font-semibold">{resolvedVal}</span>
+                                      </div>
+                                    ) : (
+                                      resolvedVal || '<空>'
+                                    )}
+                                  </td>
+                                  <td className="px-3 py-1.5 text-gray-500 font-sans text-[10px]">接口直接指定</td>
+                                </tr>
+                              );
+                            })}
                         </tbody>
                       </table>
                     </div>
@@ -1772,6 +2146,28 @@ export const WebSocketWorkbench: React.FC<WebSocketWorkbenchProps> = ({
           )}
         </div>
       </div>
+
+      {/* Multi-language Code Generator Drawer */}
+      <CodeDrawer
+        isOpen={isCodeDrawerOpen}
+        onClose={() => setIsCodeDrawerOpen(false)}
+        api={mergedApiForCode}
+        preUrl={wsPreUrl}
+        availableVars={allVars}
+      />
+
+      {/* Move to directory modal */}
+      <MoveToModal
+        isOpen={isMoveModalOpen}
+        onClose={() => setIsMoveModalOpen(false)}
+        targetNode={api}
+        treeItems={treeItems}
+        onMove={async (targetId, newParentId) => {
+          if (onMoveApi) {
+            await onMoveApi(targetId, newParentId);
+          }
+        }}
+      />
     </div>
   );
 };

@@ -132,34 +132,69 @@ export class NetworkEngine {
 
     // 2. Resolve URL and Path Parameters
     const resolvedPreUrl = this.interpolate(preUrl || '', mergedVars);
-    let targetUrl = this.interpolate(api.url ? api.url.trim() : '', mergedVars);
+    const { url: pathResolvedUrl, appliedParams: pathParams } = UrlUtils.applyPathParams(
+      api.url ? api.url.trim() : '',
+      api.request.path?.parameter,
+      (val) => this.interpolate(val, mergedVars)
+    );
+    let targetUrl = UrlUtils.buildRequestUrl(pathResolvedUrl, resolvedPreUrl);
 
-    const pathParams: Record<string, string> = {};
-    if (api.request.path?.parameter) {
-      for (const item of api.request.path.parameter) {
+    // 3. Resolve Query Params (supports multi-value array params: ids=1&ids=2, ids[]=1&ids[]=2, and type === 'array')
+    const queryParams: Record<string, string | string[]> = {};
+    const querySearchParams = new URLSearchParams();
+    if (api.request.query?.parameter) {
+      for (const item of api.request.query.parameter) {
         if (item.is_checked === 1 && item.key) {
-          let key = this.interpolate(item.key, mergedVars).trim();
-          if (key.startsWith(':')) key = key.slice(1);
-          else if (key.startsWith('{') && key.endsWith('}')) key = key.slice(1, -1);
-          const val = this.interpolate(item.value || '', mergedVars);
-          pathParams[key] = val;
-          // Replace :paramName and {paramName} in targetUrl
-          targetUrl = targetUrl
-            .replace(new RegExp(`:${key}(?=[/?&#]|$)`, 'g'), encodeURIComponent(val))
-            .replace(new RegExp(`\\{${key}\\}`, 'g'), encodeURIComponent(val));
+          const resolvedKey = this.interpolate(item.key, mergedVars);
+          const rawVal = this.interpolate(item.value || '', mergedVars);
+
+          // Support type === 'array' with JSON array value e.g. ["a", "b"]
+          if ((item.data_type === 'array' || item.type === 'array') && rawVal.startsWith('[') && rawVal.endsWith(']')) {
+            try {
+              const parsed = JSON.parse(rawVal);
+              if (Array.isArray(parsed)) {
+                for (const elem of parsed) {
+                  const elemStr = String(elem);
+                  querySearchParams.append(resolvedKey, elemStr);
+                  if (queryParams[resolvedKey] !== undefined) {
+                    queryParams[resolvedKey] = Array.isArray(queryParams[resolvedKey])
+                      ? [...(queryParams[resolvedKey] as string[]), elemStr]
+                      : [queryParams[resolvedKey] as string, elemStr];
+                  } else {
+                    queryParams[resolvedKey] = [elemStr];
+                  }
+                }
+                continue;
+              }
+            } catch {}
+          }
+
+          querySearchParams.append(resolvedKey, rawVal);
+          if (queryParams[resolvedKey] !== undefined) {
+            queryParams[resolvedKey] = Array.isArray(queryParams[resolvedKey])
+              ? [...(queryParams[resolvedKey] as string[]), rawVal]
+              : [queryParams[resolvedKey] as string, rawVal];
+          } else {
+            queryParams[resolvedKey] = rawVal;
+          }
         }
       }
     }
 
-    targetUrl = UrlUtils.buildRequestUrl(targetUrl, resolvedPreUrl);
-
-    // 3. Resolve Query Params
-    const queryParams: Record<string, string> = {};
-    if (api.request.query?.parameter) {
-      for (const item of api.request.query.parameter) {
-        if (item.is_checked === 1 && item.key) {
-          queryParams[this.interpolate(item.key, mergedVars)] = this.interpolate(item.value || '', mergedVars);
+    // Prevent duplicate query parameters if targetUrl already contains parameters defined in querySearchParams
+    if (targetUrl.includes('?') && querySearchParams.size > 0) {
+      const [baseUrlPart, queryStringPart] = targetUrl.split('?', 2);
+      const urlSearchParams = new URLSearchParams(queryStringPart);
+      let modified = false;
+      for (const key of querySearchParams.keys()) {
+        if (urlSearchParams.has(key)) {
+          urlSearchParams.delete(key);
+          modified = true;
         }
+      }
+      if (modified) {
+        const remainingQuery = urlSearchParams.toString();
+        targetUrl = remainingQuery ? `${baseUrlPart}?${remainingQuery}` : baseUrlPart;
       }
     }
 
@@ -167,10 +202,21 @@ export class NetworkEngine {
     const headers: Record<string, string> = {
       'User-Agent': 'mypost/1.0 (Desktop; Offline)',
     };
+    const headerKeyLookup: Record<string, string> = {
+      'user-agent': 'User-Agent',
+    };
     if (api.request.header?.parameter) {
       for (const item of api.request.header.parameter) {
         if (item.is_checked === 1 && item.key) {
-          headers[this.interpolate(item.key, mergedVars)] = this.interpolate(item.value || '', mergedVars);
+          const resolvedKey = this.interpolate(item.key, mergedVars).trim();
+          const resolvedVal = this.interpolate(item.value || '', mergedVars);
+          const lower = resolvedKey.toLowerCase();
+          const existingKey = headerKeyLookup[lower];
+          if (existingKey && existingKey !== resolvedKey) {
+            delete headers[existingKey];
+          }
+          headers[resolvedKey] = resolvedVal;
+          headerKeyLookup[lower] = resolvedKey;
         }
       }
     }
@@ -328,7 +374,7 @@ export class NetworkEngine {
     }
 
     // Capture Actual Request info for "实际请求" tab
-    const queryStr = Object.keys(queryParams).length > 0 ? new URLSearchParams(queryParams).toString() : '';
+    const queryStr = querySearchParams.toString();
     const fullSentUrl = queryStr
       ? targetUrl.includes('?')
         ? `${targetUrl}&${queryStr}`
@@ -385,7 +431,7 @@ export class NetworkEngine {
     const config: AxiosRequestConfig = {
       method: api.method || 'GET',
       url: targetUrl,
-      params: queryParams,
+      params: querySearchParams.size > 0 ? querySearchParams : undefined,
       headers,
       data: dataPayload,
       timeout: 0, // No timeout limit as requested

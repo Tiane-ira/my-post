@@ -69,7 +69,7 @@ describe('DataImporters Engine', () => {
       const updated = DataImporters.curlToApiDetail(curl, baseApi);
       expect(updated.target_id).toBe('api-existing-1');
       expect(updated.method).toBe('PUT');
-      expect(updated.url).toBe('https://api.example.com/products/88?category=phone');
+      expect(updated.url).toBe('https://api.example.com/products/88');
       expect(updated.request.query.parameter.length).toBe(1);
       expect(updated.request.query.parameter[0].key).toBe('category');
       expect(updated.request.query.parameter[0].value).toBe('phone');
@@ -80,28 +80,39 @@ describe('DataImporters Engine', () => {
       expect(updated.request.auth.bearer?.token).toBe('abc-xyz-token');
     });
 
-    it('should strip environment preUrl from url when curl command matches current environment', () => {
+    it('should strip environment preUrl from url and separate query parameters into query table', () => {
       const curl = `curl "https://api.example.com/api/v1/orders/999?status=active" -H "X-Token: 123"`;
       const baseApi: any = { target_id: 'api-env-1' };
       const preUrl = 'https://api.example.com';
 
       const updated = DataImporters.curlToApiDetail(curl, baseApi, preUrl);
-      expect(updated.url).toBe('/api/v1/orders/999?status=active');
+      expect(updated.url).toBe('/api/v1/orders/999');
       expect(updated.request.query.parameter.length).toBe(1);
       expect(updated.request.query.parameter[0].key).toBe('status');
       expect(updated.request.query.parameter[0].value).toBe('active');
     });
 
-    it('should keep full url when curl command does not match current environment preUrl', () => {
+    it('should keep clean url and separate query params when curl does not match environment preUrl', () => {
       const curl = `curl "https://httpbin.org/get?source=postman"`;
       const baseApi: any = { target_id: 'api-env-2' };
       const preUrl = 'http://localhost:8080';
 
       const updated = DataImporters.curlToApiDetail(curl, baseApi, preUrl);
-      expect(updated.url).toBe('https://httpbin.org/get?source=postman');
+      expect(updated.url).toBe('https://httpbin.org/get');
       expect(updated.request.query.parameter.length).toBe(1);
       expect(updated.request.query.parameter[0].key).toBe('source');
       expect(updated.request.query.parameter[0].value).toBe('postman');
+    });
+
+    it('should preserve target_type and extract path parameters from cURL command', () => {
+      const curl = `curl "https://api.example.com/v1/users/:userId/items/{itemId}?active=true"`;
+      const baseApi: any = { target_id: 'ws-1', target_type: 'websocket' };
+
+      const updated = DataImporters.curlToApiDetail(curl, baseApi);
+      expect(updated.target_type).toBe('websocket');
+      expect(updated.url).toBe('https://api.example.com/v1/users/:userId/items/{itemId}');
+      expect(updated.request.query.parameter.map((q) => q.key)).toEqual(['active']);
+      expect(updated.request.path.parameter.map((p) => p.key)).toEqual(['userId', 'itemId']);
     });
 
     it('should parse Windows CMD multiline cURL with carets and caret escaping', () => {

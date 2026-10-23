@@ -9,6 +9,7 @@ import {
   ProjectInfo,
   KeyValueItem,
 } from '../../common/types';
+import { ParamUtils } from '../../common/paramUtils';
 import { TitleBar } from './components/TitleBar';
 import { Sidebar } from './components/Sidebar';
 import { TabItem, TabManager } from './components/TabManager';
@@ -25,6 +26,7 @@ import { ActivityBar } from './components/ActivityBar';
 import { ShareManagementPage } from './components/ShareManagementPage';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { useFeedback } from './components/FeedbackContext';
+import { getAutoCheckEnabled, checkForUpdates } from './utils/updateChecker';
 
 export const App: React.FC = () => {
   const { toast } = useFeedback();
@@ -41,16 +43,21 @@ export const App: React.FC = () => {
     vars: [],
   });
 
+  const isParamChecked = (item: any): boolean => {
+    if (!item || typeof item !== 'object') return false;
+    return item.is_checked === undefined || item.is_checked === 1 || item.is_checked === true || item.is_checked === '1';
+  };
+
   // Available environment & global variables for interpolation and autocomplete
   const availableVars = React.useMemo(() => {
     const map: Record<string, { value: string; source: 'env' | 'global' }> = {};
     for (const v of globalParams?.vars || []) {
-      if (v && typeof v === 'object' && v.is_checked === 1 && v.key) {
+      if (v && typeof v === 'object' && isParamChecked(v) && v.key) {
         map[v.key] = { value: typeof v.value === 'string' ? v.value : String(v.value || ''), source: 'global' };
       }
     }
     for (const v of currentEnv?.list || []) {
-      if (v && typeof v === 'object' && v.is_checked === 1 && v.key) {
+      if (v && typeof v === 'object' && isParamChecked(v) && v.key) {
         map[v.key] = { value: typeof v.value === 'string' ? v.value : String(v.value || ''), source: 'env' };
       }
     }
@@ -67,13 +74,93 @@ export const App: React.FC = () => {
   const [apiResponses, setApiResponses] = useState<Record<string, HttpResponseResult>>({});
   const apiDetailsCacheRef = React.useRef<Record<string, ApiDetail>>({});
 
+  // Merged folder details cache combining synchronous cache and react state
+  const mergedFolderDetails = React.useMemo(() => {
+    return { ...apiDetailsCacheRef.current, ...folderDetails };
+  }, [folderDetails]);
+
   // Modals
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
   const [isEnvModalOpen, setIsEnvModalOpen] = useState(false);
+  const [envModalInitialTab, setEnvModalInitialTab] = useState<string | null>(null);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [shareFolderId, setShareFolderId] = useState<string | null>(null);
+
+  const currentEnvVars = React.useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const item of currentEnv?.list || []) {
+      if (item && isParamChecked(item) && item.key) {
+        map[item.key] = typeof item.value === 'string' ? item.value : String(item.value || '');
+      }
+    }
+    return map;
+  }, [currentEnv?.list]);
+
+  const globalVarsMap = React.useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const item of globalParams?.vars || []) {
+      if (item && isParamChecked(item) && item.key) {
+        map[item.key] = typeof item.value === 'string' ? item.value : String(item.value || '');
+      }
+    }
+    return map;
+  }, [globalParams?.vars]);
+
+  const ensureAncestorFolderDetails = async (
+    parentId: string | undefined,
+    tree: ApiTreeNode[],
+    forceRefresh: boolean = false
+  ) => {
+    if (!currentProject) return;
+    const folderIdsToLoad: string[] = [];
+    const newDetails: Record<string, ApiDetail> = {};
+    let cur = parentId;
+    while (cur && cur !== '0') {
+      if (!forceRefresh && apiDetailsCacheRef.current[cur]) {
+        newDetails[cur] = apiDetailsCacheRef.current[cur];
+      } else {
+        folderIdsToLoad.push(cur);
+      }
+      const node = (tree || []).find((t) => t.target_id === cur);
+      cur = node ? node.parent_id : '';
+    }
+    if (!forceRefresh && apiDetailsCacheRef.current['0']) {
+      newDetails['0'] = apiDetailsCacheRef.current['0'];
+    } else {
+      folderIdsToLoad.push('0');
+    }
+
+    if (folderIdsToLoad.length > 0) {
+      await Promise.all(
+        folderIdsToLoad.map(async (fId) => {
+          try {
+            const detail = await window.mypostAPI.getApiDetail(currentProject.project_id, fId);
+            if (detail) {
+              apiDetailsCacheRef.current[fId] = detail;
+              newDetails[fId] = detail;
+            }
+          } catch (e) {
+            console.warn(`Failed to preload ancestor folder ${fId}:`, e);
+          }
+        })
+      );
+    }
+
+    if (Object.keys(newDetails).length > 0) {
+      setFolderDetails((prev) => {
+        let hasChange = false;
+        for (const [k, v] of Object.entries(newDetails)) {
+          if (prev[k] !== v) {
+            hasChange = true;
+            break;
+          }
+        }
+        return hasChange ? { ...prev, ...newDetails } : prev;
+      });
+    }
+  };
 
   // Top-level Navigation View ('apis' | 'shares')
   const [activeNavTab, setActiveNavTab] = useState<'apis' | 'shares'>('apis');
@@ -105,6 +192,21 @@ export const App: React.FC = () => {
     const savedCloseToTray = localStorage.getItem('mypost:system:closeToTray');
     if (savedCloseToTray !== null && window.mypostAPI?.setCloseToTray) {
       window.mypostAPI.setCloseToTray(savedCloseToTray === 'true');
+    }
+
+    // Startup update check (only if enabled by user, defaults to false)
+    if (getAutoCheckEnabled()) {
+      const timer = setTimeout(async () => {
+        try {
+          const res = await checkForUpdates();
+          if (res.hasUpdate) {
+            toast.info(`🎉 发现 mypost 新版本 v${res.latestVersion}，可前往“设置 - 关于”下载更新`);
+          }
+        } catch {
+          // Silent ignore
+        }
+      }, 3000);
+      return () => clearTimeout(timer);
     }
   }, []);
 
@@ -176,6 +278,7 @@ export const App: React.FC = () => {
         (t) => t.target_type === 'api' || t.target_type === 'sse' || t.target_type === 'websocket'
       );
       if (firstApi) {
+        await ensureAncestorFolderDetails(firstApi.parent_id, validTree);
         const detail = await window.mypostAPI.getApiDetail(projectId, firstApi.target_id);
         if (detail) {
           const newTab: TabItem = {
@@ -286,6 +389,9 @@ export const App: React.FC = () => {
 
     setActiveFolder(null);
 
+    const node = treeItems.find((t) => t.target_id === targetId);
+    await ensureAncestorFolderDetails(node?.parent_id, treeItems);
+
     // 1. Check synchronous cache in memory
     const cached = modifiedApisRef.current[targetId] || apiDetailsCacheRef.current[targetId];
 
@@ -294,15 +400,29 @@ export const App: React.FC = () => {
     if (existing) {
       setActiveTabId(targetId);
       if (cached) {
+        // Synchronize parent_id with current tree node if needed
+        const synced =
+          node?.parent_id !== undefined && cached.parent_id !== node.parent_id
+            ? { ...cached, parent_id: node.parent_id }
+            : cached;
+        if (synced !== cached) {
+          apiDetailsCacheRef.current[targetId] = synced;
+          if (modifiedApisRef.current[targetId]) {
+            modifiedApisRef.current[targetId] = synced;
+          }
+        }
         // Immediate synchronous switch - 0ms delay!
-        setActiveDetail(cached);
-        if (cached.target_type === 'sse' || cached.target_type === 'websocket') {
-          setStreamingTabs((prev) => (prev[targetId] ? prev : { ...prev, [targetId]: cached }));
+        setActiveDetail(synced);
+        if (synced.target_type === 'sse' || synced.target_type === 'websocket') {
+          setStreamingTabs((prev) => (prev[targetId] ? prev : { ...prev, [targetId]: synced }));
         }
         return;
       }
       const detail = await window.mypostAPI.getApiDetail(currentProject.project_id, targetId);
       if (detail) {
+        if (node?.parent_id !== undefined) {
+          detail.parent_id = node.parent_id;
+        }
         apiDetailsCacheRef.current[targetId] = detail;
         setActiveDetail(detail);
         if (detail.target_type === 'sse' || detail.target_type === 'websocket') {
@@ -314,24 +434,37 @@ export const App: React.FC = () => {
 
     // 2. Tab is not yet in tabs, open new tab
     if (cached) {
+      const synced =
+        node?.parent_id !== undefined && cached.parent_id !== node.parent_id
+          ? { ...cached, parent_id: node.parent_id }
+          : cached;
+      if (synced !== cached) {
+        apiDetailsCacheRef.current[targetId] = synced;
+        if (modifiedApisRef.current[targetId]) {
+          modifiedApisRef.current[targetId] = synced;
+        }
+      }
       const newTab: TabItem = {
-        id: cached.target_id,
-        name: cached.name,
-        method: cached.method,
-        type: (cached.target_type as any) || 'api',
+        id: synced.target_id,
+        name: synced.name,
+        method: synced.method,
+        type: (synced.target_type as any) || 'api',
         isDirty: !!modifiedApisRef.current[targetId],
       };
-      setTabs((prev) => (prev.some((t) => t.id === cached.target_id) ? prev : [...prev, newTab]));
-      setActiveTabId(cached.target_id);
-      setActiveDetail(cached);
-      if (cached.target_type === 'sse' || cached.target_type === 'websocket') {
-        setStreamingTabs((prev) => ({ ...prev, [cached.target_id]: cached }));
+      setTabs((prev) => (prev.some((t) => t.id === synced.target_id) ? prev : [...prev, newTab]));
+      setActiveTabId(synced.target_id);
+      setActiveDetail(synced);
+      if (synced.target_type === 'sse' || synced.target_type === 'websocket') {
+        setStreamingTabs((prev) => ({ ...prev, [synced.target_id]: synced }));
       }
       return;
     }
 
     const detail = await window.mypostAPI.getApiDetail(currentProject.project_id, targetId);
     if (detail) {
+      if (node?.parent_id !== undefined) {
+        detail.parent_id = node.parent_id;
+      }
       apiDetailsCacheRef.current[detail.target_id] = detail;
       const newTab: TabItem = {
         id: detail.target_id,
@@ -457,6 +590,7 @@ export const App: React.FC = () => {
     if (targetType === 'sse' || targetType === 'websocket') {
       setStreamingTabs((prev) => ({ ...prev, [newId]: newApi }));
     }
+    ensureAncestorFolderDetails('0', treeItems);
   };
 
   const handleApiChange = (updated: ApiDetail) => {
@@ -548,12 +682,19 @@ export const App: React.FC = () => {
 
     isSavingRef.current = true;
     try {
+      const treeNode = treeItems.find((t) => t.target_id === targetToSave.target_id);
+      const apiToSave: ApiDetail = {
+        ...targetToSave,
+        parent_id: treeNode?.parent_id !== undefined ? treeNode.parent_id : (targetToSave.parent_id || '0'),
+      };
+
       await window.mypostAPI.saveApiDetail(
         currentProject.project_id,
-        targetToSave.target_id,
-        targetToSave
+        apiToSave.target_id,
+        apiToSave
       );
-      delete modifiedApisRef.current[targetToSave.target_id];
+      delete modifiedApisRef.current[apiToSave.target_id];
+      apiDetailsCacheRef.current[apiToSave.target_id] = apiToSave;
 
       // Refresh tree
       const tree = await window.mypostAPI.getProjectTree(currentProject.project_id);
@@ -561,7 +702,7 @@ export const App: React.FC = () => {
 
       // Clear dirty flag
       setTabs((prev) =>
-        prev.map((t) => (t.id === targetToSave.target_id ? { ...t, isDirty: false } : t))
+        prev.map((t) => (t.id === apiToSave.target_id ? { ...t, isDirty: false } : t))
       );
       toast.success('接口保存成功');
     } catch (e: any) {
@@ -596,15 +737,27 @@ export const App: React.FC = () => {
     if (!currentProject) return;
     try {
       if (activeDetail) {
+        const treeNode = treeItems.find((t) => t.target_id === activeDetail.target_id);
+        const apiToSave = {
+          ...activeDetail,
+          parent_id: treeNode?.parent_id !== undefined ? treeNode.parent_id : (activeDetail.parent_id || '0'),
+        };
         await window.mypostAPI.saveApiDetail(
           currentProject.project_id,
-          activeDetail.target_id,
-          activeDetail
+          apiToSave.target_id,
+          apiToSave
         );
+        apiDetailsCacheRef.current[apiToSave.target_id] = apiToSave;
       }
       for (const [id, detail] of Object.entries(modifiedApisRef.current)) {
         if (id !== activeDetail?.target_id) {
-          await window.mypostAPI.saveApiDetail(currentProject.project_id, id, detail);
+          const treeNode = treeItems.find((t) => t.target_id === id);
+          const apiToSave = {
+            ...detail,
+            parent_id: treeNode?.parent_id !== undefined ? treeNode.parent_id : (detail.parent_id || '0'),
+          };
+          await window.mypostAPI.saveApiDetail(currentProject.project_id, id, apiToSave);
+          apiDetailsCacheRef.current[id] = apiToSave;
         }
       }
       modifiedApisRef.current = {};
@@ -699,6 +852,10 @@ export const App: React.FC = () => {
   };
 
   const handleSendRequest = async (apiToSend: ApiDetail, requestId?: string): Promise<HttpResponseResult> => {
+    if (currentProject) {
+      await ensureAncestorFolderDetails(apiToSend.parent_id, treeItems);
+    }
+
     const envVars: Record<string, string> = {};
     if (currentEnv?.list) {
       for (const item of currentEnv.list) {
@@ -717,61 +874,11 @@ export const App: React.FC = () => {
       }
     }
 
-    // Collect ancestor folder common parameters (Header & Query)
-    const folderHeaders: KeyValueItem[] = [];
-    const folderQueryParams: KeyValueItem[] = [];
-    let curParentId = apiToSend.parent_id;
-    while (curParentId && curParentId !== '0') {
-      const parentNode = treeItems.find((t) => t.target_id === curParentId);
-      if (!parentNode) break;
-      let parentDetail: ApiDetail | null = apiDetailsCacheRef.current[curParentId] || null;
-      if (!parentDetail && currentProject) {
-        try {
-          const loaded = await window.mypostAPI.getApiDetail(currentProject.project_id, curParentId);
-          if (loaded) {
-            parentDetail = loaded;
-            apiDetailsCacheRef.current[curParentId] = loaded;
-          }
-        } catch {}
-      }
-      if (parentDetail?.request?.header?.parameter) {
-        folderHeaders.unshift(...parentDetail.request.header.parameter.filter((h: any) => h.is_checked === 1));
-      }
-      if (parentDetail?.request?.query?.parameter) {
-        folderQueryParams.unshift(...parentDetail.request.query.parameter.filter((q: any) => q.is_checked === 1));
-      }
-      curParentId = parentNode.parent_id;
-    }
-
-    // Also check root folder ('0')
-    let rootDetail: ApiDetail | null = apiDetailsCacheRef.current['0'] || null;
-    if (!rootDetail && currentProject) {
-      try {
-        const loadedRoot = await window.mypostAPI.getApiDetail(currentProject.project_id, '0');
-        if (loadedRoot) {
-          rootDetail = loadedRoot;
-          apiDetailsCacheRef.current['0'] = loadedRoot;
-        }
-      } catch {}
-    }
-    if (rootDetail?.request?.header?.parameter) {
-      folderHeaders.unshift(...rootDetail.request.header.parameter.filter((h: any) => h.is_checked === 1));
-    }
-    if (rootDetail?.request?.query?.parameter) {
-      folderQueryParams.unshift(...rootDetail.request.query.parameter.filter((q: any) => q.is_checked === 1));
-    }
-
-    // Merge folder headers and query params before apiToSend's own params
-    const mergedHeaders = [...folderHeaders, ...(apiToSend.request.header?.parameter || [])];
-    const mergedQuery = [...folderQueryParams, ...(apiToSend.request.query?.parameter || [])];
-    const finalApiToSend: ApiDetail = {
-      ...apiToSend,
-      request: {
-        ...apiToSend.request,
-        header: { parameter: mergedHeaders },
-        query: { ...apiToSend.request.query, parameter: mergedQuery },
-      },
-    };
+    const finalApiToSend = ParamUtils.mergeApiWithFolderParams(
+      apiToSend,
+      treeItems,
+      apiDetailsCacheRef.current
+    );
 
     const preUrl = currentEnv?.pre_url || '';
     return window.mypostAPI.sendRequest(finalApiToSend, envVars, globalVars, preUrl, requestId);
@@ -911,11 +1018,41 @@ export const App: React.FC = () => {
 
     if (movedId && newParentId !== undefined) {
       const movedNode = newTree.find((t) => t.target_id === movedId);
-      if (movedNode?.target_type === 'api') {
-        const detail = await window.mypostAPI.getApiDetail(currentProject.project_id, movedId);
-        if (detail) {
-          detail.parent_id = newParentId;
-          await window.mypostAPI.saveApiDetail(currentProject.project_id, movedId, detail);
+
+      // Preload & refresh ancestor folder details for the destination folder
+      await ensureAncestorFolderDetails(newParentId, newTree, true);
+
+      if (movedNode && movedNode.target_type !== 'folder') {
+        const existingDetail =
+          modifiedApisRef.current[movedId] ||
+          apiDetailsCacheRef.current[movedId] ||
+          (await window.mypostAPI.getApiDetail(currentProject.project_id, movedId));
+
+        if (existingDetail) {
+          const updatedDetail: ApiDetail = {
+            ...existingDetail,
+            parent_id: newParentId,
+          };
+          await window.mypostAPI.saveApiDetail(currentProject.project_id, movedId, updatedDetail);
+          apiDetailsCacheRef.current[movedId] = updatedDetail;
+          if (modifiedApisRef.current[movedId]) {
+            modifiedApisRef.current[movedId] = updatedDetail;
+          }
+          setActiveDetail((prev) =>
+            prev && prev.target_id === movedId ? { ...prev, parent_id: newParentId } : prev
+          );
+          setStreamingTabs((prev) => {
+            if (!prev[movedId]) return prev;
+            return {
+              ...prev,
+              [movedId]: { ...prev[movedId], parent_id: newParentId },
+            };
+          });
+        }
+      } else if (movedNode?.target_type === 'folder') {
+        // If a folder was moved, refresh ancestor folder details for any open API tabs
+        if (activeDetail) {
+          await ensureAncestorFolderDetails(activeDetail.parent_id, newTree, true);
         }
       }
     }
@@ -975,8 +1112,45 @@ export const App: React.FC = () => {
       await window.mypostAPI.moveApi(currentProject.project_id, targetId, newParentId);
       const tree = await window.mypostAPI.getProjectTree(currentProject.project_id);
       setTreeItems(tree);
+
+      // Preload and refresh ancestor folder details for the new folder hierarchy
+      await ensureAncestorFolderDetails(newParentId, tree, true);
+
+      // Update in-memory caches and modified tracking
+      if (apiDetailsCacheRef.current[targetId]) {
+        apiDetailsCacheRef.current[targetId] = {
+          ...apiDetailsCacheRef.current[targetId],
+          parent_id: newParentId,
+        };
+      }
+      if (modifiedApisRef.current[targetId]) {
+        modifiedApisRef.current[targetId] = {
+          ...modifiedApisRef.current[targetId],
+          parent_id: newParentId,
+        };
+      }
+
+      // Update activeDetail if targetId is currently active
+      setActiveDetail((prev) =>
+        prev && prev.target_id === targetId ? { ...prev, parent_id: newParentId } : prev
+      );
+
+      // Update streamingTabs if targetId is open
+      setStreamingTabs((prev) => {
+        if (!prev[targetId]) return prev;
+        return {
+          ...prev,
+          [targetId]: { ...prev[targetId], parent_id: newParentId },
+        };
+      });
+
+      const targetNode = tree.find((t) => t.target_id === targetId);
+      const parentNode = tree.find((t) => t.target_id === newParentId);
+      const parentName = newParentId === '0' ? '根目录' : parentNode?.name || '指定目录';
+      toast.success(`已将 "${targetNode?.name || '接口'}" 移动至 "${parentName}"`);
     } catch (e: any) {
       console.error('Failed to move API:', e);
+      toast.error(`移动失败: ${e.message || e}`);
     }
   };
 
@@ -1048,7 +1222,10 @@ export const App: React.FC = () => {
         currentEnv={currentEnv}
         globalParams={globalParams}
         onSelectEnv={(e) => setCurrentEnv(e)}
-        onOpenEnvModal={() => setIsEnvModalOpen(true)}
+        onOpenEnvModal={(targetEnvId) => {
+          setEnvModalInitialTab(targetEnvId || null);
+          setIsEnvModalOpen(true);
+        }}
       />
 
       {/* Main Workspace with Far Left ActivityBar */}
@@ -1145,8 +1322,11 @@ export const App: React.FC = () => {
                           }}
                           isDirty={tab.isDirty}
                           preUrl={currentEnv?.pre_url || ''}
+                          envVars={currentEnvVars}
+                          globalVars={globalVarsMap}
                           treeItems={treeItems}
-                          folderDetails={folderDetails}
+                          folderDetails={mergedFolderDetails}
+                          onMoveApi={handleMoveApi}
                         />
                       ) : (
                         <WebSocketWorkbench
@@ -1161,8 +1341,11 @@ export const App: React.FC = () => {
                           }}
                           isDirty={tab.isDirty}
                           preUrl={currentEnv?.pre_url || ''}
+                          envVars={currentEnvVars}
+                          globalVars={globalVarsMap}
                           treeItems={treeItems}
-                          folderDetails={folderDetails}
+                          folderDetails={mergedFolderDetails}
+                          onMoveApi={handleMoveApi}
                         />
                       )}
                     </div>
@@ -1188,6 +1371,7 @@ export const App: React.FC = () => {
                       isDirty={tabs.find((t) => t.id === activeDetail.target_id)?.isDirty}
                       onSend={handleSendRequest}
                       cachedResponse={apiResponses[activeDetail.target_id] || null}
+                      folderDetails={mergedFolderDetails}
                       onResponseChange={(res) => {
                         const targetId = activeDetail.target_id;
                         setApiResponses((prev) => {
@@ -1203,7 +1387,7 @@ export const App: React.FC = () => {
                       preUrl={currentEnv?.pre_url || ''}
                       onExtractVariable={handleExtractVariable}
                       treeItems={treeItems}
-                      folderDetails={folderDetails}
+                      onMoveApi={handleMoveApi}
                     />
                   )}
 
@@ -1302,15 +1486,20 @@ export const App: React.FC = () => {
         >
           <EnvModal
             isOpen={isEnvModalOpen}
-            onClose={() => setIsEnvModalOpen(false)}
+            onClose={() => {
+              setIsEnvModalOpen(false);
+              setEnvModalInitialTab(null);
+            }}
             envs={envs}
+            currentEnv={currentEnv}
+            initialEnvId={envModalInitialTab}
             globalParams={globalParams}
             onSaveEnv={async (env) => {
               if (currentProject) {
                 await window.mypostAPI.saveEnv(currentProject.project_id, env);
                 const nextEnvs = await window.mypostAPI.getEnvs(currentProject.project_id);
                 setEnvs(nextEnvs);
-                if (currentEnv?.env_id === env.env_id) {
+                if (!currentEnv || currentEnv.env_id === env.env_id) {
                   setCurrentEnv(env);
                 }
               }
@@ -1356,6 +1545,7 @@ export const App: React.FC = () => {
             : Promise.resolve(null)
         }
       />
+
 
       {isSettingsModalOpen && (
         <ErrorBoundary

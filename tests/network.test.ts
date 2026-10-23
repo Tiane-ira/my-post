@@ -261,6 +261,71 @@ describe('NetworkEngine Request Processor', () => {
       expect(res.actualRequest?.fullUrl).toContain('tab=actual');
     });
 
+    it('should not duplicate query parameters if api.url contains query and query.parameter has same key', async () => {
+      const api: ApiDetail = {
+        target_id: 'test-dedup-query',
+        parent_id: '0',
+        project_id: 'proj-1',
+        target_type: 'api',
+        name: 'Deduplicate Query Test',
+        method: 'GET',
+        url: 'https://httpbin.org/get?q=first&extra=1',
+        sort: 1,
+        status: 1,
+        request: {
+          query: {
+            parameter: [{ param_id: 'q1', key: 'q', value: 'override', is_checked: 1 }],
+          },
+          header: { parameter: [] },
+          body: { mode: 'none' },
+          auth: { type: 'none' },
+        },
+      };
+
+      const res = await NetworkEngine.executeRequest(api);
+      expect(res.statusCode).toBe(200);
+      expect(res.actualRequest?.fullUrl).not.toContain('q=first&q=override');
+      expect(res.actualRequest?.fullUrl).not.toContain('q=override&q=first');
+      expect(res.data?.args?.q).toBe('override');
+      expect(res.data?.args?.extra).toBe('1');
+    });
+
+    it('should support array query parameters with repeated keys without conflict with deduplication', async () => {
+      const api: ApiDetail = {
+        target_id: 'test-array-query',
+        parent_id: '0',
+        project_id: 'proj-1',
+        target_type: 'api',
+        name: 'Array Query Test',
+        method: 'GET',
+        url: 'https://httpbin.org/get',
+        sort: 1,
+        status: 1,
+        request: {
+          query: {
+            parameter: [
+              { param_id: 'q1', key: 'tag', value: 'react', is_checked: 1 },
+              { param_id: 'q2', key: 'tag', value: 'vue', is_checked: 1 },
+              { param_id: 'q3', key: 'ids', value: '["10","20"]', type: 'array', is_checked: 1 },
+            ],
+          },
+          header: { parameter: [] },
+          body: { mode: 'none' },
+          auth: { type: 'none' },
+        },
+      };
+
+      const res = await NetworkEngine.executeRequest(api);
+      expect(res.statusCode).toBe(200);
+      expect(res.actualRequest?.fullUrl).toContain('tag=react');
+      expect(res.actualRequest?.fullUrl).toContain('tag=vue');
+      expect(res.actualRequest?.fullUrl).toContain('ids=10');
+      expect(res.actualRequest?.fullUrl).toContain('ids=20');
+      expect(Array.isArray(res.actualRequest?.queryParams?.tag)).toBe(true);
+      expect(res.actualRequest?.queryParams?.tag).toEqual(['react', 'vue']);
+      expect(res.actualRequest?.queryParams?.ids).toEqual(['10', '20']);
+    });
+
     it('should parse Set-Cookie headers correctly', () => {
       const sample = [
         'sessionId=38afes7a8; Domain=example.com; Path=/; Expires=Wed, 21 Oct 2026 07:28:00 GMT; Secure; HttpOnly',

@@ -172,7 +172,7 @@ export interface HttpResponseResult {
     url: string;
     fullUrl: string;
     headers: Record<string, string>;
-    queryParams: Record<string, string>;
+    queryParams: Record<string, string | string[]>;
     pathParams?: Record<string, string>;
     bodyMode?: string;
     bodyData?: any;

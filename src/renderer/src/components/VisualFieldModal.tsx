@@ -72,7 +72,7 @@ export const VisualFieldModal: React.FC<VisualFieldModalProps> = ({
             type="button"
             onClick={onClose}
             className="p-1.5 rounded-lg hover:bg-hover text-gray-400 hover:text-foreground transition"
-            title="关闭 (Esc)"
+            title="关闭"
           >
             <X className="w-4 h-4" />
           </button>

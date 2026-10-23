@@ -8,6 +8,8 @@ interface EnvModalProps {
   isOpen: boolean;
   onClose: () => void;
   envs: EnvironmentInfo[];
+  currentEnv?: EnvironmentInfo | null;
+  initialEnvId?: string | null;
   globalParams: GlobalParams;
   onSaveEnv: (env: EnvironmentInfo) => Promise<void>;
   onDeleteEnv: (envId: string) => Promise<void>;
@@ -44,6 +46,8 @@ export const EnvModal: React.FC<EnvModalProps> = ({
   isOpen,
   onClose,
   envs,
+  currentEnv,
+  initialEnvId,
   globalParams,
   onSaveEnv,
   onDeleteEnv,
@@ -69,19 +73,69 @@ export const EnvModal: React.FC<EnvModalProps> = ({
     };
   }, [globalParams]);
 
+  const resolveTargetTab = () => {
+    // 1. Explicit initialEnvId has top priority if provided
+    if (initialEnvId) {
+      if (initialEnvId === 'globals') return 'globals';
+      if (safeEnvs.some((e) => e.env_id === initialEnvId)) return initialEnvId;
+    }
+
+    // 2. Currently active runtime environment has second priority
+    if (currentEnv) {
+      const matched = safeEnvs.find((e) => e.env_id === currentEnv.env_id);
+      if (matched) return matched.env_id;
+    }
+
+    // 3. If user selected '无环境' (currentEnv is explicitly null)
+    if (currentEnv === null) {
+      return 'globals';
+    }
+
+    // 4. Default to first environment if present, else globals
+    return safeEnvs[0]?.env_id || 'globals';
+  };
+
   const [selectedTab, setSelectedTab] = useState<'globals' | string>(() => {
+    if (initialEnvId) {
+      if (initialEnvId === 'globals') return 'globals';
+      if (safeEnvs.some((e) => e.env_id === initialEnvId)) return initialEnvId;
+    }
+    if (currentEnv && safeEnvs.some((e) => e.env_id === currentEnv.env_id)) {
+      return currentEnv.env_id;
+    }
+    if (currentEnv === null) {
+      return 'globals';
+    }
     return safeEnvs[0]?.env_id || 'globals';
   });
+
   const [currentEditEnv, setCurrentEditEnv] = useState<EnvironmentInfo | null>(() => {
-    return safeEnvs[0]
+    const initialId = (() => {
+      if (initialEnvId) {
+        if (initialEnvId === 'globals') return 'globals';
+        if (safeEnvs.some((e) => e.env_id === initialEnvId)) return initialEnvId;
+      }
+      if (currentEnv && safeEnvs.some((e) => e.env_id === currentEnv.env_id)) {
+        return currentEnv.env_id;
+      }
+      if (currentEnv === null) {
+        return 'globals';
+      }
+      return safeEnvs[0]?.env_id || 'globals';
+    })();
+
+    if (initialId === 'globals') return null;
+    const found = safeEnvs.find((e) => e.env_id === initialId) || safeEnvs[0];
+    return found
       ? {
-          ...safeEnvs[0],
-          name: safeEnvs[0].name || '',
-          pre_url: safeEnvs[0].pre_url || '',
-          list: cleanLegacyItems(safeEnvs[0].list),
+          ...found,
+          name: found.name || '',
+          pre_url: found.pre_url || '',
+          list: cleanLegacyItems(found.list),
         }
       : null;
   });
+
   const [currentGlobals, setCurrentGlobals] = useState<GlobalParams>(() => ({
     ...safeGlobalParams,
     vars: cleanLegacyItems(safeGlobalParams.vars),
@@ -95,16 +149,28 @@ export const EnvModal: React.FC<EnvModalProps> = ({
     });
   }, [safeGlobalParams]);
 
+  // Check if current editing environment is an unsaved draft
+  const isDraftEnv = Boolean(
+    currentEditEnv &&
+      selectedTab !== 'globals' &&
+      currentEditEnv.env_id === selectedTab &&
+      !safeEnvs.some((e) => e.env_id === selectedTab)
+  );
+
   useEffect(() => {
     if (selectedTab !== 'globals') {
       const found = safeEnvs.find((e) => e.env_id === selectedTab);
       if (found) {
-        setCurrentEditEnv({
-          ...found,
-          name: found.name || '',
-          pre_url: found.pre_url || '',
-          list: cleanLegacyItems(found.list),
-        });
+        if (!currentEditEnv || currentEditEnv.env_id !== found.env_id) {
+          setCurrentEditEnv({
+            ...found,
+            name: found.name || '',
+            pre_url: found.pre_url || '',
+            list: cleanLegacyItems(found.list),
+          });
+        }
+      } else if (currentEditEnv && currentEditEnv.env_id === selectedTab) {
+        // User is currently editing an unsaved new environment draft, keep it!
       } else if (safeEnvs.length > 0) {
         setSelectedTab(safeEnvs[0].env_id);
         setCurrentEditEnv({
@@ -118,13 +184,18 @@ export const EnvModal: React.FC<EnvModalProps> = ({
         setCurrentEditEnv(null);
       }
     }
-  }, [selectedTab, safeEnvs]);
+  }, [safeEnvs]);
 
-  // Sync state whenever the modal opens
+  // Sync state and automatically focus on the current environment tab when opening
   useEffect(() => {
     if (isOpen) {
-      if (selectedTab !== 'globals') {
-        const found = safeEnvs.find((e) => e.env_id === selectedTab);
+      const targetTab = resolveTargetTab();
+      setSelectedTab(targetTab);
+
+      if (targetTab === 'globals') {
+        setCurrentEditEnv(null);
+      } else {
+        const found = safeEnvs.find((e) => e.env_id === targetTab);
         if (found) {
           setCurrentEditEnv({
             ...found,
@@ -132,25 +203,15 @@ export const EnvModal: React.FC<EnvModalProps> = ({
             pre_url: found.pre_url || '',
             list: cleanLegacyItems(found.list),
           });
-        } else if (safeEnvs.length > 0) {
-          setSelectedTab(safeEnvs[0].env_id);
-          setCurrentEditEnv({
-            ...safeEnvs[0],
-            name: safeEnvs[0].name || '',
-            pre_url: safeEnvs[0].pre_url || '',
-            list: cleanLegacyItems(safeEnvs[0].list),
-          });
-        } else {
-          setSelectedTab('globals');
-          setCurrentEditEnv(null);
         }
       }
+
       setCurrentGlobals({
         ...safeGlobalParams,
         vars: cleanLegacyItems(safeGlobalParams.vars),
       });
     }
-  }, [isOpen]);
+  }, [isOpen, currentEnv?.env_id, initialEnvId]);
 
   if (!isOpen) return null;
 
@@ -200,7 +261,13 @@ export const EnvModal: React.FC<EnvModalProps> = ({
       await onSaveGlobalParams(currentGlobals);
       toast.success('全局变量已保存');
     } else if (currentEditEnv) {
-      await onSaveEnv(currentEditEnv);
+      const trimmedName = currentEditEnv.name?.trim() || '未命名环境';
+      const toSave = {
+        ...currentEditEnv,
+        name: trimmedName,
+      };
+      await onSaveEnv(toSave);
+      setCurrentEditEnv(toSave);
       toast.success('环境配置已保存');
     }
   };
@@ -223,6 +290,23 @@ export const EnvModal: React.FC<EnvModalProps> = ({
 
   const handleDelete = async () => {
     if (!currentEditEnv) return;
+    const isDraft = !safeEnvs.some((e) => e.env_id === currentEditEnv.env_id);
+    if (isDraft) {
+      const fallbackTab = safeEnvs[0]?.env_id || 'globals';
+      setSelectedTab(fallbackTab);
+      setCurrentEditEnv(
+        safeEnvs[0]
+          ? {
+              ...safeEnvs[0],
+              name: safeEnvs[0].name || '',
+              pre_url: safeEnvs[0].pre_url || '',
+              list: cleanLegacyItems(safeEnvs[0].list),
+            }
+          : null
+      );
+      toast.info('已取消新建环境');
+      return;
+    }
     const ok = await confirm({
       title: '删除环境确认',
       message: `确认删除环境 "${currentEditEnv.name}" 吗？此操作无法撤销。`,
@@ -232,7 +316,7 @@ export const EnvModal: React.FC<EnvModalProps> = ({
     });
     if (ok) {
       await onDeleteEnv(currentEditEnv.env_id);
-      setSelectedTab('globals');
+      setSelectedTab(safeEnvs[0]?.env_id || 'globals');
       setCurrentEditEnv(null);
       toast.success(`已删除环境 "${currentEditEnv.name}"`);
     }
@@ -269,14 +353,21 @@ export const EnvModal: React.FC<EnvModalProps> = ({
               <button
                 type="button"
                 onClick={handleSelectGlobals}
-                className={`w-full text-left px-3 py-2 rounded-xl text-xs transition flex items-center gap-2 ${
+                className={`w-full text-left px-3 py-2 rounded-xl text-xs transition flex items-center justify-between ${
                   selectedTab === 'globals'
                     ? 'bg-accent/15 text-accent font-bold border border-accent/30 shadow-xs'
                     : 'text-gray-300 hover:bg-hover'
                 }`}
               >
-                <Layers className="w-3.5 h-3.5 text-accent shrink-0" />
-                <span className="truncate">全局变量 (Globals)</span>
+                <div className="flex items-center gap-2 truncate">
+                  <Layers className="w-3.5 h-3.5 text-accent shrink-0" />
+                  <span className="truncate">全局变量 (Globals)</span>
+                </div>
+                {!currentEnv && (
+                  <span className="text-[9px] px-1.5 py-0.2 rounded bg-blue-500/15 text-blue-400 font-medium shrink-0 border border-blue-500/30">
+                    当前
+                  </span>
+                )}
               </button>
 
               <div className="h-[1px] bg-line my-2" />
@@ -284,23 +375,50 @@ export const EnvModal: React.FC<EnvModalProps> = ({
               <div className="text-[10px] text-gray-500 font-semibold px-2 py-1 uppercase tracking-wider">
                 独立环境列表
               </div>
-              {safeEnvs.map((e) => (
+              {safeEnvs.map((e) => {
+                const isCurrent = currentEnv && currentEnv.env_id === e.env_id;
+                return (
+                  <button
+                    key={e.env_id}
+                    type="button"
+                    onClick={() => handleSelectEnv(e)}
+                    className={`w-full text-left px-3 py-2 rounded-xl text-xs truncate transition flex items-center justify-between ${
+                      selectedTab === e.env_id
+                        ? 'bg-accent/15 text-accent font-bold border border-accent/30 shadow-xs'
+                        : 'text-gray-300 hover:bg-hover'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5 truncate pr-1">
+                      <span className="truncate">{typeof e.name === 'string' ? e.name : '未命名环境'}</span>
+                      {isCurrent && (
+                        <span className="text-[9px] px-1.5 py-0.2 rounded bg-blue-500/15 text-blue-400 font-medium shrink-0 border border-blue-500/30">
+                          当前
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-[10px] text-gray-500 font-mono shrink-0">
+                      {Array.isArray(e.list) ? e.list.length : 0}
+                    </span>
+                  </button>
+                );
+              })}
+
+              {/* Unsaved draft environment */}
+              {isDraftEnv && currentEditEnv && (
                 <button
-                  key={e.env_id}
                   type="button"
-                  onClick={() => handleSelectEnv(e)}
-                  className={`w-full text-left px-3 py-2 rounded-xl text-xs truncate transition flex items-center justify-between ${
-                    selectedTab === e.env_id
-                      ? 'bg-accent/15 text-accent font-bold border border-accent/30 shadow-xs'
-                      : 'text-gray-300 hover:bg-hover'
-                  }`}
+                  onClick={() => setSelectedTab(currentEditEnv.env_id)}
+                  className={`w-full text-left px-3 py-2 rounded-xl text-xs truncate transition flex items-center justify-between bg-accent/15 text-accent font-bold border border-accent/30 shadow-xs`}
                 >
-                  <span className="truncate">{typeof e.name === 'string' ? e.name : '未命名环境'}</span>
-                  <span className="text-[10px] text-gray-500 font-mono shrink-0">
-                    {Array.isArray(e.list) ? e.list.length : 0}
+                  <span className="truncate flex items-center gap-1.5">
+                    <span className="text-amber-400 font-bold">*</span>
+                    <span>{typeof currentEditEnv.name === 'string' && currentEditEnv.name ? currentEditEnv.name : '新环境'}</span>
+                  </span>
+                  <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 shrink-0 font-sans">
+                    未保存
                   </span>
                 </button>
-              ))}
+              )}
             </div>
 
             <div className="space-y-1.5 pt-2 border-t border-line">

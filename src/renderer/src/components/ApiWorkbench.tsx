@@ -17,6 +17,7 @@ import {
   Layers,
   FileCode,
   X,
+  Folder,
 } from 'lucide-react';
 import { ApiDetail, ApiTreeNode, HttpMethod, HttpResponseResult, ResponseExample } from '../../../common/types';
 import { ParamUtils } from '../../../common/paramUtils';
@@ -31,6 +32,7 @@ import { CodeDrawer } from './CodeDrawer';
 import { DocPreview } from './DocPreview';
 import { VariableInput, VariableItem } from './VariableInput';
 import { useFeedback } from './FeedbackContext';
+import { MoveToModal } from './MoveToModal';
 
 interface ApiWorkbenchProps {
   api: ApiDetail;
@@ -47,6 +49,7 @@ interface ApiWorkbenchProps {
   onExtractVariable?: (key: string, value: string) => void;
   treeItems?: ApiTreeNode[];
   folderDetails?: Record<string, any>;
+  onMoveApi?: (targetId: string, newParentId: string) => Promise<void> | void;
 }
 
 
@@ -65,8 +68,10 @@ export const ApiWorkbench: React.FC<ApiWorkbenchProps> = ({
   onExtractVariable,
   treeItems = [],
   folderDetails = {},
+  onMoveApi,
 }) => {
   const { toast } = useFeedback();
+  const [isMoveModalOpen, setIsMoveModalOpen] = useState(false);
   const [activeReqTab, setActiveReqTab] = useState<
     'header' | 'query' | 'path' | 'body' | 'auth' | 'cookie' | 'pre' | 'tests'
   >('body');
@@ -85,6 +90,15 @@ export const ApiWorkbench: React.FC<ApiWorkbenchProps> = ({
   const { headers: inheritedHeaders, query: inheritedQuery } = React.useMemo(() => {
     return ParamUtils.computeImplicitParams(api, treeItems, folderDetails);
   }, [api, treeItems, folderDetails]);
+
+  // Current folder name lookup
+  const currentFolderName = React.useMemo(() => {
+    const treeNode = (treeItems || []).find((t) => t.target_id === api.target_id);
+    const parentId = (treeNode && treeNode.parent_id !== undefined) ? treeNode.parent_id : (api.parent_id || '0');
+    if (!parentId || parentId === '0') return '根目录';
+    const parentNode = (treeItems || []).find((t) => t.target_id === parentId);
+    return parentNode?.name || '指定目录';
+  }, [api.target_id, api.parent_id, treeItems]);
 
   // Advanced feature drawer & modes
   const [isDocMode, setIsDocMode] = useState(false);
@@ -154,11 +168,28 @@ export const ApiWorkbench: React.FC<ApiWorkbenchProps> = ({
   };
 
 
-  // Synchronize path params on initial load/mount if URL has path variables
+  // Synchronize path params on initial load/mount if URL has path variables or query string
   useEffect(() => {
-    if (api?.url && (!api.request?.path?.parameter || api.request.path.parameter.length === 0)) {
-      const extracted = UrlUtils.extractPathParams(api.url, []);
-      if (extracted.length > 0) {
+    if (api?.url && api.url.includes('?')) {
+      const { cleanUrl, queryParams } = UrlUtils.syncUrlToParams(api.url, req.query?.parameter || []);
+      const extracted = UrlUtils.extractPathParams(cleanUrl, req.path?.parameter || []);
+      onChange({
+        ...api,
+        url: cleanUrl,
+        request: {
+          ...(api.request || req),
+          query: { parameter: queryParams },
+          path: { parameter: extracted },
+        },
+      });
+      return;
+    }
+    if (api?.url) {
+      const currentParams = req.path?.parameter || [];
+      const extracted = UrlUtils.extractPathParams(api.url, currentParams);
+      const keysExtracted = extracted.map((p) => p.key).sort().join(',');
+      const keysCurrent = currentParams.map((p) => p.key).sort().join(',');
+      if (keysExtracted !== keysCurrent) {
         onChange({
           ...api,
           request: {
@@ -182,12 +213,12 @@ export const ApiWorkbench: React.FC<ApiWorkbenchProps> = ({
       }
     }
 
-    const { queryParams } = UrlUtils.syncUrlToParams(newUrl, req.query?.parameter || []);
-    const pathParams = UrlUtils.extractPathParams(newUrl, req.path?.parameter || []);
+    const { cleanUrl, queryParams } = UrlUtils.syncUrlToParams(newUrl, req.query?.parameter || []);
+    const pathParams = UrlUtils.extractPathParams(cleanUrl, req.path?.parameter || []);
 
     onChange({
       ...api,
-      url: newUrl,
+      url: cleanUrl,
       request: {
         ...req,
         query: { parameter: queryParams },
@@ -209,12 +240,12 @@ export const ApiWorkbench: React.FC<ApiWorkbenchProps> = ({
     }
   };
 
-  // Query parameter table update with automatic Params -> URL sync
+  // Query parameter table update: URL bar does not display query parameters; do not sync query params into api.url
   const handleQueryParamsChange = (parameter: any[]) => {
-    const newUrl = UrlUtils.syncParamsToUrl(api.url || '', parameter);
+    const cleanUrl = (api.url || '').split('?')[0];
     onChange({
       ...api,
-      url: newUrl,
+      url: cleanUrl,
       request: {
         ...req,
         query: { parameter },
@@ -502,7 +533,7 @@ export const ApiWorkbench: React.FC<ApiWorkbenchProps> = ({
     <div className="flex-1 flex flex-col h-full bg-canvas overflow-hidden relative">
       {/* Top Bar: Name, Status Badge, Action Buttons */}
       <div className="h-11 px-4 border-b border-line flex items-center justify-between bg-subtle">
-        <div className="flex items-center gap-3 w-1/2">
+        <div className="flex items-center gap-2.5 max-w-[65%]">
           <input
             type="text"
             value={api.name || ''}
@@ -514,24 +545,63 @@ export const ApiWorkbench: React.FC<ApiWorkbenchProps> = ({
               }
             }}
             placeholder="接口名称"
-            className="bg-transparent border-none text-sm font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-accent px-2 py-0.5 rounded flex-1"
+            className="bg-transparent border-none text-sm font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-accent px-2 py-0.5 rounded flex-1 min-w-[120px]"
           />
+          {onMoveApi && (
+            <button
+              type="button"
+              onClick={() => setIsMoveModalOpen(true)}
+              className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs bg-canvas/60 hover:bg-hover border border-line text-gray-400 hover:text-foreground transition group shrink-0"
+              title="当前所属目录 (点击更换目录)"
+            >
+              <Folder className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              <span className="max-w-[130px] truncate">{currentFolderName}</span>
+              <ChevronDown className="w-3 h-3 text-gray-500 group-hover:text-foreground shrink-0" />
+            </button>
+          )}
         </div>
 
-        {/* Right side: Only Code2 button */}
-        <div className="flex items-center gap-1.5">
+        {/* Right side: Save As, Share, and Code Drawer buttons */}
+        <div className="flex items-center gap-1.5 text-xs">
+          {onSaveAs && (
+            <Tooltip content="另存为 (复制为新接口)" delayMs={400}>
+              <button
+                type="button"
+                onClick={onSaveAs}
+                className="p-1.5 hover:bg-hover rounded-lg border border-line text-gray-400 hover:text-foreground transition flex items-center justify-center"
+                aria-label="另存为"
+              >
+                <BookmarkPlus className="w-4 h-4" />
+              </button>
+            </Tooltip>
+          )}
+
+          {onOpenShare && (
+            <Tooltip content="生成局域网免登录在线分享文档" delayMs={400}>
+              <button
+                type="button"
+                onClick={onOpenShare}
+                className="p-1.5 hover:bg-hover rounded-lg border border-line text-gray-400 hover:text-foreground transition flex items-center justify-center"
+                aria-label="分享接口"
+              >
+                <Share2 className="w-4 h-4" />
+              </button>
+            </Tooltip>
+          )}
+
           <Tooltip
-            content={isCodeDrawerOpen ? '收起代码侧边栏' : '生成多语言代码 (右侧抽屉)'}
+            content={isCodeDrawerOpen ? '收起代码侧边栏' : '生成客户端代码 (右侧抽屉)'}
             delayMs={400}
           >
             <button
+              type="button"
               onClick={() => setIsCodeDrawerOpen(!isCodeDrawerOpen)}
-              className={`p-1.5 rounded-lg border transition ${
+              className={`p-1.5 rounded-lg border transition flex items-center justify-center ${
                 isCodeDrawerOpen
-                  ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40 shadow-sm shadow-indigo-500/20'
-                  : 'bg-subtle hover:bg-hover border-line text-indigo-400 hover:text-indigo-300'
+                  ? 'bg-accent/20 text-accent border-accent/40 shadow-sm'
+                  : 'bg-subtle hover:bg-hover border-line text-accent hover:text-accent-hover'
               }`}
-              aria-label="生成代码"
+              aria-label="生成客户端代码"
             >
               <Code2 className="w-4 h-4" />
             </button>
@@ -1389,10 +1459,27 @@ export const ApiWorkbench: React.FC<ApiWorkbenchProps> = ({
 
     {/* Right Sidebar: Code Generator Drawer */}
     <CodeDrawer
-      api={{ ...api, request: req }}
+      api={React.useMemo(() => {
+        const currentApi = { ...api, request: req };
+        return ParamUtils.mergeApiWithFolderParams(currentApi, treeItems, folderDetails);
+      }, [api, req, treeItems, folderDetails])}
       isOpen={isCodeDrawerOpen}
       onClose={() => setIsCodeDrawerOpen(false)}
       preUrl={preUrl}
+      availableVars={availableVars}
+    />
+
+    {/* Move to directory modal */}
+    <MoveToModal
+      isOpen={isMoveModalOpen}
+      onClose={() => setIsMoveModalOpen(false)}
+      targetNode={api}
+      treeItems={treeItems}
+      onMove={async (targetId, newParentId) => {
+        if (onMoveApi) {
+          await onMoveApi(targetId, newParentId);
+        }
+      }}
     />
   </div>
 </div>

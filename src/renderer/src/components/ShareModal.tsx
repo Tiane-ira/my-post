@@ -16,6 +16,7 @@ import {
 import { ApiDetail, ApiTreeNode, ProjectInfo, DocShareRecord } from '../../../common/types';
 import { DocGenerator } from '../../../common/docGenerator';
 import { TreeUtils } from '../../../common/treeUtils';
+import { ParamUtils } from '../../../common/paramUtils';
 import { useFeedback } from './FeedbackContext';
 
 interface ShareModalProps {
@@ -128,6 +129,36 @@ export const ShareModal: React.FC<ShareModalProps> = ({
       }
       setCachedDetails(detailMap);
 
+      // Preload ancestor folder details for all apis to merge folder params
+      const folderMap: Record<string, ApiDetail> = {};
+      const folderIdsToLoad = new Set<string>(['0']);
+      for (const a of apiList) {
+        let cur = a.parent_id;
+        while (cur && cur !== '0') {
+          folderIdsToLoad.add(cur);
+          const node = treeItems.find((t) => t.target_id === cur);
+          cur = node ? node.parent_id : '';
+        }
+      }
+
+      await Promise.all(
+        Array.from(folderIdsToLoad).map(async (fId) => {
+          if (detailMap[fId]) {
+            folderMap[fId] = detailMap[fId];
+          } else {
+            const fd = await getApiDetail(fId);
+            if (fd) {
+              folderMap[fId] = fd;
+              detailMap[fId] = fd;
+            }
+          }
+        })
+      );
+
+      const mergedApiList = apiList.map((a) =>
+        ParamUtils.mergeApiWithFolderParams(a, treeItems, folderMap)
+      );
+
       const activeShareId =
         shareId ||
         `s_${(project?.project_id || 'proj').slice(0, 6)}_${Math.random().toString(36).slice(2, 8)}`;
@@ -149,7 +180,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({
             ? Date.now() + 30 * 86400000
             : undefined,
         tree: scopedTreeHierarchy,
-        apis: apiList,
+        apis: mergedApiList,
       };
 
       if (window.mypostAPI?.createDocShare) {

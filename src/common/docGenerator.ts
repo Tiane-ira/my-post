@@ -153,7 +153,8 @@ export class DocGenerator {
         lines.push(`| :--- | :--- | :--- | :--- | :--- |`);
         validItems.forEach((f) => {
           const required = f.is_required === 1 || f.required ? '是' : '否';
-          lines.push(`| ${f.key} | ${f.type || 'text'} | ${required} | ${f.value || '-'} | ${f.description || '-'} |`);
+          const fileDisplay = f.type === 'file' || f.data_type === 'file' ? (f.file_name || (f.file_path ? f.file_path.split(/[/\\]/).pop() : '') || f.value || '未选择文件') : (f.value || '-');
+          lines.push(`| ${f.key} | ${f.type || 'text'} | ${required} | ${fileDisplay} | ${f.description || '-'} |`);
         });
         lines.push('');
       } else {

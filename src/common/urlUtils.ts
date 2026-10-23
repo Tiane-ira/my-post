@@ -5,25 +5,42 @@ export class UrlUtils {
     url: string,
     existingParams: KeyValueItem[] = []
   ): { cleanUrl: string; queryParams: KeyValueItem[] } {
-    if (!url.includes('?')) {
-      return { cleanUrl: url, queryParams: existingParams };
+    if (!url || !url.includes('?')) {
+      return { cleanUrl: url || '', queryParams: existingParams };
     }
 
-    const [cleanUrl, queryString] = url.split('?', 2);
+    const [cleanUrl, rawQueryString] = url.split('?', 2);
+    const queryString = (rawQueryString || '').split('#', 2)[0];
+    if (!queryString.trim()) {
+      return { cleanUrl, queryParams: existingParams };
+    }
+
     const searchParams = new URLSearchParams(queryString);
+    if (Array.from(searchParams.keys()).length === 0) {
+      return { cleanUrl, queryParams: existingParams };
+    }
 
     const newParams: KeyValueItem[] = [];
     const seenKeys = new Set<string>();
+    const usedExistingIds = new Set<string>();
 
     // 1. Extract from query string
     searchParams.forEach((value, key) => {
       seenKeys.add(key);
-      const existing = existingParams.find((p) => p.key === key);
+      const existing = existingParams.find(
+        (p) => p.key === key && !usedExistingIds.has(p.param_id)
+      );
+      if (existing) {
+        usedExistingIds.add(existing.param_id);
+      }
+
       newParams.push({
         param_id: existing?.param_id || Math.random().toString(36).substring(2, 9),
         key,
         value,
         description: existing?.description || '',
+        data_type: existing?.data_type || 'string',
+        type: existing?.type || 'text',
         is_checked: 1,
       });
     });
@@ -62,7 +79,7 @@ export class UrlUtils {
     url: string,
     existingParams: KeyValueItem[] = []
   ): KeyValueItem[] {
-    if (!url) return existingParams;
+    if (!url) return [];
 
     // 1. Separate path portion from query string and hash
     let pathPart = url.split(/[?#]/)[0];
@@ -76,6 +93,13 @@ export class UrlUtils {
     } else {
       // Remove any {{baseUrl}} or {{env}} prefix at the start
       pathPart = pathPart.replace(/^\{\{[^}]+\}\}/, '');
+      if (!pathPart.startsWith('/') && pathPart.includes('/')) {
+        const firstSlash = pathPart.indexOf('/');
+        const hostPart = pathPart.slice(0, firstSlash);
+        if (hostPart.includes(':') || hostPart.includes('.')) {
+          pathPart = pathPart.slice(firstSlash);
+        }
+      }
     }
 
     // 2. Find all :param or {param} in pathPart
@@ -83,7 +107,7 @@ export class UrlUtils {
     const seen = new Set<string>();
 
     // Match :param preceded by / or start or delimiter
-    const colonRegex = /(?:^|\/):([a-zA-Z0-9_-]+)/g;
+    const colonRegex = /(?:^|[^a-zA-Z0-9_]):([a-zA-Z0-9_-]+)/g;
     let m: RegExpExecArray | null;
     while ((m = colonRegex.exec(pathPart)) !== null) {
       const k = m[1];
@@ -93,8 +117,8 @@ export class UrlUtils {
       }
     }
 
-    // Match {param}
-    const braceRegex = /\{([a-zA-Z0-9_-]+)\}/g;
+    // Match {param} but avoid {{envVar}}
+    const braceRegex = /(?<!\{)\{([a-zA-Z0-9_-]+)\}(?!\})/g;
     while ((m = braceRegex.exec(pathPart)) !== null) {
       const k = m[1];
       if (!seen.has(k)) {
@@ -104,8 +128,7 @@ export class UrlUtils {
     }
 
     if (keys.length === 0) {
-      // If no path params in URL, retain existing manual params if they have values
-      return existingParams.filter((p) => !p.key || p.value);
+      return [];
     }
 
     // 3. Build synced list preserving existing values & descriptions
@@ -119,8 +142,8 @@ export class UrlUtils {
         value: existing?.value || '',
         description: existing?.description || '',
         is_checked: existing ? existing.is_checked : 1,
-        data_type: 'string',
-        type: 'text',
+        data_type: existing?.data_type || 'string',
+        type: existing?.type || 'text',
       };
     });
   }
@@ -153,7 +176,7 @@ export class UrlUtils {
       if (oldKey && newKey && oldKey !== newKey) {
         pathAndBase = pathAndBase
           .replace(new RegExp(`:${oldKey}(?=[/?&#]|$)`, 'g'), `:${newKey}`)
-          .replace(new RegExp(`\\{${oldKey}\\}`, 'g'), `{${newKey}}`);
+          .replace(new RegExp(`(?<!\\{)\\{${oldKey}\\}(?!\\})`, 'g'), `{${newKey}}`);
       }
     }
 
@@ -168,7 +191,7 @@ export class UrlUtils {
       ) {
         pathAndBase = pathAndBase
           .replace(new RegExp(`/:${oldKey}(?=[/?&#]|$)`, 'g'), '')
-          .replace(new RegExp(`/\\{${oldKey}\\}(?=[/?&#]|$)`, 'g'), '');
+          .replace(new RegExp(`/(?<!\\{)\\{${oldKey}\\}(?!\\})(?=[/?&#]|$)`, 'g'), '');
       }
     }
 
@@ -177,7 +200,7 @@ export class UrlUtils {
       const newKey = clean(newP.key || '');
       if (newKey && newP.is_checked === 1) {
         const hasToken = new RegExp(
-          `(?::${newKey}|\\{${newKey}\\})(?=[/?&#]|$)`
+          `(?::${newKey}|(?<!\\{)\\{${newKey}\\})(?=[/?&#]|$)`
         ).test(pathAndBase);
         if (!hasToken) {
           pathAndBase = pathAndBase.endsWith('/')
@@ -188,6 +211,54 @@ export class UrlUtils {
     }
 
     return `${pathAndBase}${suffix}`;
+  }
+
+  /**
+   * Applies Path parameters (:param or {param}) to a URL path portion,
+   * replacing the tokens with their url-encoded values.
+   *
+   * @param url - The input URL (e.g. "/users/:userId" or "wss://echo.websocket.events/chat/{room}")
+   * @param pathParams - List of KeyValueItems representing path parameters
+   * @param interpolateFn - Optional function for variable interpolation (e.g. {{myVar}})
+   * @returns An object containing the transformed URL and a map of applied parameter key/values
+   */
+  public static applyPathParams(
+    url: string,
+    pathParams: KeyValueItem[] = [],
+    interpolateFn: (val: string) => string = (v) => v
+  ): { url: string; appliedParams: Record<string, string> } {
+    let targetUrl = interpolateFn(url || '').trim();
+    const appliedParams: Record<string, string> = {};
+
+    if (!Array.isArray(pathParams) || pathParams.length === 0) {
+      return { url: targetUrl, appliedParams };
+    }
+
+    for (const item of pathParams) {
+      if (!item || !item.key) continue;
+      const isChecked =
+        item.is_checked === undefined ||
+        item.is_checked === 1 ||
+        (item.is_checked as any) === true ||
+        (item.is_checked as any) === '1';
+      if (!isChecked) continue;
+
+      let key = interpolateFn(item.key).trim();
+      if (key.startsWith(':')) key = key.slice(1);
+      else if (key.startsWith('{') && key.endsWith('}')) key = key.slice(1, -1);
+      if (!key) continue;
+
+      const rawVal = interpolateFn(item.value || '');
+      appliedParams[key] = rawVal;
+      const encodedVal = encodeURIComponent(rawVal);
+
+      // Replace :key and {key} in targetUrl without affecting {{env}} variables
+      targetUrl = targetUrl
+        .replace(new RegExp(`:${key}(?=[/?&#]|$)`, 'g'), encodedVal)
+        .replace(new RegExp(`(?<!\\{)\\{${key}\\}(?!\\})`, 'g'), encodedVal);
+    }
+
+    return { url: targetUrl, appliedParams };
   }
 
   /**
@@ -205,15 +276,16 @@ export class UrlUtils {
   public static buildRequestUrl(rawUrl: string, baseUrl?: string): string {
     const trimmedUrl = (rawUrl || '').trim();
     let trimmedBase = (baseUrl || '').trim();
+    const cleanTrailingQ = (s: string) => s.replace(/\?+$/, '');
 
     // 1. 无环境时：请求的 URL 就是 URL 栏中的值
     if (!trimmedBase) {
       if (!trimmedUrl) return '';
       // If protocol is missing and it doesn't start with a slash, prefix http:// so axios/fetch doesn't fail
       if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(trimmedUrl) && !trimmedUrl.startsWith('/')) {
-        return `http://${trimmedUrl}`;
+        return cleanTrailingQ(`http://${trimmedUrl}`);
       }
-      return trimmedUrl;
+      return cleanTrailingQ(trimmedUrl);
     }
 
     // Ensure baseUrl has protocol
@@ -224,12 +296,12 @@ export class UrlUtils {
 
     // 2. 有选环境时：环境的 baseUrl 拼接 URL 栏的值
     if (!trimmedUrl) {
-      return cleanBase;
+      return cleanTrailingQ(cleanBase);
     }
 
     // If the URL bar value already begins with baseUrl, don't double-prefix
     if (trimmedUrl.startsWith(cleanBase)) {
-      return trimmedUrl;
+      return cleanTrailingQ(trimmedUrl);
     }
 
     // If URL bar has an absolute URL to a different host (e.g. from an external pasted cURL)
@@ -238,20 +310,20 @@ export class UrlUtils {
         const u = new URL(trimmedUrl);
         const b = new URL(cleanBase);
         if (u.host === b.host && u.pathname.startsWith(b.pathname)) {
-          return trimmedUrl;
+          return cleanTrailingQ(trimmedUrl);
         }
       } catch {}
-      return trimmedUrl;
+      return cleanTrailingQ(trimmedUrl);
     }
 
     // If URL bar starts with query string
     if (trimmedUrl.startsWith('?')) {
-      return `${cleanBase}${trimmedUrl}`;
+      return cleanTrailingQ(`${cleanBase}${trimmedUrl}`);
     }
 
     // Normal concatenation: baseUrl + / + path
     const cleanPath = trimmedUrl.replace(/^\/+/, '');
-    return `${cleanBase}/${cleanPath}`;
+    return cleanTrailingQ(`${cleanBase}/${cleanPath}`);
   }
 
   /**

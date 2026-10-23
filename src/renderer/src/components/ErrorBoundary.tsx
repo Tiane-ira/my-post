@@ -67,7 +67,7 @@ export class ErrorBoundary extends Component<Props, State> {
                   <button
                     onClick={this.props.onClose}
                     className="p-1.5 rounded-lg hover:bg-hover text-gray-400 hover:text-foreground transition cursor-pointer"
-                    title="关闭 (Esc)"
+                    title="关闭"
                   >
                     <X className="w-4 h-4" />
                   </button>

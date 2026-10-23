@@ -73,12 +73,12 @@ export const RequestEditor: React.FC<RequestEditorProps> = ({
     });
   };
 
-  // Query parameter table update with automatic Params -> URL sync
+  // Query parameter table update: URL bar does not display query parameters; do not sync query params into api.url
   const handleQueryParamsChange = (parameter: KeyValueItem[]) => {
-    const newUrl = UrlUtils.syncParamsToUrl(api.url || '', parameter);
+    const cleanUrl = (api.url || '').split('?')[0];
     onChange({
       ...api,
-      url: newUrl,
+      url: cleanUrl,
       request: {
         ...req,
         query: { parameter },

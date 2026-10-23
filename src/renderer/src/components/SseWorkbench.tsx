@@ -22,6 +22,8 @@ import {
   WrapText,
   ListTree,
   X,
+  BookmarkPlus,
+  Folder,
 } from 'lucide-react';
 import { ApiDetail, ApiTreeNode, HttpMethod, HttpResponseResult, KeyValueItem } from '../../../common/types';
 import { ParamUtils } from '../../../common/paramUtils';
@@ -33,6 +35,8 @@ import { ResponseViewer } from './ResponseViewer';
 import { Tooltip } from './Tooltip';
 import { useFeedback } from './FeedbackContext';
 import { JsonCodeEditor } from './JsonCodeEditor';
+import { CodeDrawer } from './CodeDrawer';
+import { MoveToModal } from './MoveToModal';
 
 export interface SseEventItem {
   id: string;
@@ -265,6 +269,7 @@ interface SseWorkbenchProps {
   globalVars?: Record<string, string>;
   treeItems?: ApiTreeNode[];
   folderDetails?: Record<string, any>;
+  onMoveApi?: (targetId: string, newParentId: string) => Promise<void> | void;
 }
 
 export const SseWorkbench: React.FC<SseWorkbenchProps> = ({
@@ -276,10 +281,36 @@ export const SseWorkbench: React.FC<SseWorkbenchProps> = ({
   onOpenShare,
   isDirty = false,
   preUrl = '',
+  envVars = {},
+  globalVars = {},
   treeItems = [],
   folderDetails = {},
+  onMoveApi,
 }) => {
   const { toast } = useFeedback();
+  const [isMoveModalOpen, setIsMoveModalOpen] = useState(false);
+
+  const allVars = React.useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const [k, v] of Object.entries(availableVars || {})) {
+      map[k] = v.value;
+    }
+    for (const [k, v] of Object.entries(globalVars || {})) {
+      map[k] = v;
+    }
+    for (const [k, v] of Object.entries(envVars || {})) {
+      map[k] = v;
+    }
+    return map;
+  }, [availableVars, globalVars, envVars]);
+
+  const interpolate = (val: string): string => {
+    if (!val || typeof val !== 'string') return val;
+    return val.replace(/\{\{([^{}]+)\}\}/g, (_, key) => {
+      const k = key.trim();
+      return allVars[k] !== undefined ? allVars[k] : `{{${key}}}`;
+    });
+  };
 
   // Connection & Stream State
   const [status, setStatus] = useState<'idle' | 'connecting' | 'connected' | 'error'>('idle');
@@ -292,11 +323,21 @@ export const SseWorkbench: React.FC<SseWorkbenchProps> = ({
 
   // Response snapshot for unified ResponseViewer tabs (headers, actual, console, examples)
   const [sseResponse, setSseResponse] = useState<HttpResponseResult | null>(null);
+  const [isCodeDrawerOpen, setIsCodeDrawerOpen] = useState(false);
 
   // Compute all implicit / inherited parameters from parent folders, Auth, and SSE system defaults
   const { headers: inheritedHeaders, query: inheritedQuery } = React.useMemo(() => {
     return ParamUtils.computeImplicitParams(api, treeItems, folderDetails, { isSse: true });
   }, [api, treeItems, folderDetails]);
+
+  // Current folder name lookup
+  const currentFolderName = React.useMemo(() => {
+    const treeNode = (treeItems || []).find((t) => t.target_id === api.target_id);
+    const parentId = (treeNode && treeNode.parent_id !== undefined) ? treeNode.parent_id : (api.parent_id || '0');
+    if (!parentId || parentId === '0') return '根目录';
+    const parentNode = (treeItems || []).find((t) => t.target_id === parentId);
+    return parentNode?.name || '指定目录';
+  }, [api.target_id, api.parent_id, treeItems]);
 
   // Streaming real-time area UI state
   const [filterText, setFilterText] = useState('');
@@ -437,6 +478,39 @@ export const SseWorkbench: React.FC<SseWorkbenchProps> = ({
     setFilterText('');
     setActiveMatchIndex(0);
 
+    if (api?.url && api.url.includes('?')) {
+      const currentQuery = api.request?.query?.parameter || [];
+      const currentPath = api.request?.path?.parameter || [];
+      const { cleanUrl, queryParams } = UrlUtils.syncUrlToParams(api.url, currentQuery);
+      const pathParams = UrlUtils.extractPathParams(cleanUrl, currentPath);
+      onChange({
+        ...api,
+        url: cleanUrl,
+        request: {
+          ...api.request,
+          query: { parameter: queryParams },
+          path: { parameter: pathParams },
+        },
+      });
+      return;
+    }
+
+    if (api?.url) {
+      const currentPath = api.request?.path?.parameter || [];
+      const extracted = UrlUtils.extractPathParams(api.url, currentPath);
+      const keysExtracted = extracted.map((p) => p.key).sort().join(',');
+      const keysCurrent = currentPath.map((p) => p.key).sort().join(',');
+      if (keysExtracted !== keysCurrent) {
+        onChange({
+          ...api,
+          request: {
+            ...api.request,
+            path: { parameter: extracted },
+          },
+        });
+      }
+    }
+
     return () => {
       if (currentStreamIdRef.current && window.mypostAPI?.stopSseStream) {
         window.mypostAPI.stopSseStream(currentStreamIdRef.current);
@@ -466,21 +540,20 @@ export const SseWorkbench: React.FC<SseWorkbenchProps> = ({
   };
 
 
-  // Interpolate URL with variables and ensure valid protocol
-  const resolveUrl = (rawUrl: string): string => {
+  // Interpolate URL with variables, apply path parameters, and ensure valid protocol
+  const resolveUrl = (
+    rawUrl: string,
+    pathParams?: KeyValueItem[]
+  ): { fullUrl: string; appliedPathParams: Record<string, string> } => {
     let finalUrl = (rawUrl || '').trim();
-    if (!finalUrl) return '';
-
-    const envs: Record<string, string> = {};
-    const globals: Record<string, string> = {};
-    for (const [k, v] of Object.entries(availableVars || {})) {
-      if (v.source === 'env') envs[k] = v.value;
-      else globals[k] = v.value;
-    }
-    const allVars = { ...globals, ...envs };
-    finalUrl = finalUrl.replace(/\{\{([^{}]+)\}\}/g, (_, key) => allVars[key.trim()] || `{{${key}}}`);
-
-    return UrlUtils.buildRequestUrl(finalUrl, preUrl);
+    if (!finalUrl) return { fullUrl: '', appliedPathParams: {} };
+    const { url: pathApplied, appliedParams } = UrlUtils.applyPathParams(
+      finalUrl,
+      pathParams ?? api.request?.path?.parameter,
+      interpolate
+    );
+    const fullUrl = UrlUtils.buildRequestUrl(pathApplied, preUrl);
+    return { fullUrl, appliedPathParams: appliedParams };
   };
 
   // URL input handler with automatic cURL command detection & URL -> Query & Path parameter sync
@@ -497,12 +570,12 @@ export const SseWorkbench: React.FC<SseWorkbenchProps> = ({
 
     const currentQuery = api.request?.query?.parameter || [];
     const currentPath = api.request?.path?.parameter || [];
-    const { queryParams } = UrlUtils.syncUrlToParams(newUrl, currentQuery);
-    const pathParams = UrlUtils.extractPathParams(newUrl, currentPath);
+    const { cleanUrl, queryParams } = UrlUtils.syncUrlToParams(newUrl, currentQuery);
+    const pathParams = UrlUtils.extractPathParams(cleanUrl, currentPath);
 
     onChange({
       ...api,
-      url: newUrl,
+      url: cleanUrl,
       request: {
         ...api.request,
         query: { parameter: queryParams },
@@ -628,7 +701,10 @@ export const SseWorkbench: React.FC<SseWorkbenchProps> = ({
     }
 
     setErrorMessage(null);
-    const resolvedUrl = resolveUrl(api.url);
+    const { fullUrl: resolvedUrl, appliedPathParams: pathRecord } = resolveUrl(
+      api.url,
+      api.request?.path?.parameter
+    );
     if (!resolvedUrl) {
       toast.error('请输入有效的 SSE 请求 URL 地址');
       return;
@@ -648,47 +724,105 @@ export const SseWorkbench: React.FC<SseWorkbenchProps> = ({
 
     try {
       // Construct URL with query parameters (including inherited query params)
-      const urlObj = new URL(resolvedUrl);
-      const queryRecord: Record<string, string> = {};
+      const [cleanResolvedUrl, existingQuery] = resolvedUrl.split('?', 2);
+      const urlObj = new URL(cleanResolvedUrl);
+      const queryParams = api.request?.query?.parameter || [];
+      const queryRecord: Record<string, string | string[]> = {};
+
+      if (existingQuery) {
+        const sp = new URLSearchParams(existingQuery);
+        sp.forEach((val, key) => {
+          const hasInDirect = queryParams.some(
+            (p) => p.is_checked === 1 && p.key === key && (p.value || '') === val
+          );
+          const hasInInherited = inheritedQuery.some(
+            (p) => !p.overridden && p.key === key && (p.value || '') === val
+          );
+          if (!hasInDirect && !hasInInherited) {
+            urlObj.searchParams.append(key, val);
+            queryRecord[key] = val;
+          }
+        });
+      }
 
       for (const inh of inheritedQuery) {
         if (!inh.overridden && inh.key) {
-          urlObj.searchParams.append(inh.key, inh.value || '');
-          queryRecord[inh.key] = inh.value || '';
+          const interpKey = interpolate(inh.key);
+          const interpVal = interpolate(inh.value || '');
+          urlObj.searchParams.append(interpKey, interpVal);
+          if (queryRecord[interpKey] !== undefined) {
+            queryRecord[interpKey] = Array.isArray(queryRecord[interpKey])
+              ? [...(queryRecord[interpKey] as string[]), interpVal]
+              : [queryRecord[interpKey] as string, interpVal];
+          } else {
+            queryRecord[interpKey] = interpVal;
+          }
         }
       }
 
-      const queryParams = api.request?.query?.parameter || [];
       for (const p of queryParams) {
         if (p.is_checked === 1 && p.key) {
-          urlObj.searchParams.append(p.key, p.value || '');
-          queryRecord[p.key] = p.value || '';
+          const interpKey = interpolate(p.key);
+          const interpVal = interpolate(p.value || '');
+
+          if ((p.data_type === 'array' || p.type === 'array') && interpVal.startsWith('[') && interpVal.endsWith(']')) {
+            try {
+              const parsed = JSON.parse(interpVal);
+              if (Array.isArray(parsed)) {
+                for (const elem of parsed) {
+                  const elemStr = String(elem);
+                  urlObj.searchParams.append(interpKey, elemStr);
+                  if (queryRecord[interpKey] !== undefined) {
+                    queryRecord[interpKey] = Array.isArray(queryRecord[interpKey])
+                      ? [...(queryRecord[interpKey] as string[]), elemStr]
+                      : [queryRecord[interpKey] as string, elemStr];
+                  } else {
+                    queryRecord[interpKey] = [elemStr];
+                  }
+                }
+                continue;
+              }
+            } catch {}
+          }
+
+          urlObj.searchParams.append(interpKey, interpVal);
+          if (queryRecord[interpKey] !== undefined) {
+            queryRecord[interpKey] = Array.isArray(queryRecord[interpKey])
+              ? [...(queryRecord[interpKey] as string[]), interpVal]
+              : [queryRecord[interpKey] as string, interpVal];
+          } else {
+            queryRecord[interpKey] = interpVal;
+          }
         }
       }
 
-      // Path parameters
-      const pathParams = api.request?.path?.parameter || [];
-      const pathRecord: Record<string, string> = {};
-      for (const p of pathParams) {
-        if (p.is_checked === 1 && p.key) {
-          pathRecord[p.key] = p.value || '';
-        }
-      }
-
-      // Construct headers (including inherited headers)
+      // Construct headers (including inherited headers) with case-insensitive deduplication
+      const headerKeyLookup = new Map<string, string>();
       const headers: Record<string, string> = {};
+
+      const setHeader = (k: string, v: string) => {
+        if (!k) return;
+        const lower = k.trim().toLowerCase();
+        const existingKey = headerKeyLookup.get(lower);
+        if (existingKey && existingKey !== k) {
+          delete headers[existingKey];
+        }
+        headerKeyLookup.set(lower, k);
+        headers[k] = v;
+      };
+
       for (const inh of inheritedHeaders) {
         if (!inh.overridden && inh.key) {
-          headers[inh.key] = inh.value || '';
+          setHeader(interpolate(inh.key), interpolate(inh.value || ''));
         }
       }
-      headers['Accept'] = headers['Accept'] || 'text/event-stream, text/*, */*';
-      headers['Cache-Control'] = headers['Cache-Control'] || 'no-cache';
+      setHeader('Accept', headers['Accept'] || 'text/event-stream, text/*, */*');
+      setHeader('Cache-Control', headers['Cache-Control'] || 'no-cache');
 
       const headerParams = api.request?.header?.parameter || [];
       for (const h of headerParams) {
         if (h.is_checked === 1 && h.key) {
-          headers[h.key] = h.value || '';
+          setHeader(interpolate(h.key), interpolate(h.value || ''));
         }
       }
 
@@ -696,23 +830,25 @@ export const SseWorkbench: React.FC<SseWorkbenchProps> = ({
       const cookieParams = api.request?.cookie?.parameter || [];
       const cookieStrings = cookieParams
         .filter((c) => c.is_checked === 1 && c.key)
-        .map((c) => `${c.key}=${encodeURIComponent(c.value || '')}`);
+        .map((c) => `${interpolate(c.key)}=${encodeURIComponent(interpolate(c.value || ''))}`);
       if (cookieStrings.length > 0) {
-        headers['Cookie'] = cookieStrings.join('; ');
+        setHeader('Cookie', cookieStrings.join('; '));
       }
 
       // Auth headers
       const auth = api.request?.auth;
       if (auth?.type === 'bearer' && auth.bearer?.token) {
-        headers['Authorization'] = `Bearer ${auth.bearer.token}`;
+        setHeader('Authorization', `Bearer ${interpolate(auth.bearer.token)}`);
       } else if (auth?.type === 'basic' && auth.basic?.username) {
-        const creds = btoa(`${auth.basic.username}:${auth.basic.password || ''}`);
-        headers['Authorization'] = `Basic ${creds}`;
+        const creds = btoa(`${interpolate(auth.basic.username)}:${interpolate(auth.basic.password || '')}`);
+        setHeader('Authorization', `Basic ${creds}`);
       } else if (auth?.type === 'apikey' && auth.apikey?.key && auth.apikey?.value) {
+        const k = interpolate(auth.apikey.key);
+        const v = interpolate(auth.apikey.value);
         if (auth.apikey.in === 'header') {
-          headers[auth.apikey.key] = auth.apikey.value;
+          setHeader(k, v);
         } else {
-          urlObj.searchParams.append(auth.apikey.key, auth.apikey.value);
+          urlObj.searchParams.append(k, v);
         }
       }
 
@@ -722,27 +858,29 @@ export const SseWorkbench: React.FC<SseWorkbenchProps> = ({
       const bodyMode = api.request?.body?.mode || 'none';
       if (method !== 'GET' && method !== 'HEAD') {
         if (bodyMode === 'raw') {
-          body = api.request?.body?.raw || '';
+          body = interpolate(api.request?.body?.raw || '');
           if (!headers['Content-Type']) {
             const rawType = api.request?.body?.raw_type || 'json';
-            headers['Content-Type'] =
+            setHeader(
+              'Content-Type',
               rawType === 'json'
                 ? 'application/json'
                 : rawType === 'xml'
                 ? 'application/xml'
-                : 'text/plain';
+                : 'text/plain'
+            );
           }
         } else if (bodyMode === 'urlencoded') {
           const urlencodedParams = api.request?.body?.parameter || [];
           const searchParams = new URLSearchParams();
           for (const item of urlencodedParams) {
             if (item.is_checked === 1 && item.key) {
-              searchParams.append(item.key, item.value || '');
+              searchParams.append(interpolate(item.key), interpolate(item.value || ''));
             }
           }
           body = searchParams.toString();
           if (!headers['Content-Type']) {
-            headers['Content-Type'] = 'application/x-www-form-urlencoded';
+            setHeader('Content-Type', 'application/x-www-form-urlencoded');
           }
         } else if (bodyMode === 'form-data') {
           const formParams = api.request?.body?.parameter || [];
@@ -1228,7 +1366,7 @@ export const SseWorkbench: React.FC<SseWorkbenchProps> = ({
                   onClick={handlePrevSseMatch}
                   disabled={matchedEventIds.length === 0}
                   className="p-0.5 hover:bg-hover rounded text-gray-400 hover:text-white disabled:opacity-30 transition"
-                  title="上一个匹配 (Shift+Enter)"
+                  title="上一个匹配"
                 >
                   <ChevronUp className="w-3 h-3" />
                 </button>
@@ -1237,7 +1375,7 @@ export const SseWorkbench: React.FC<SseWorkbenchProps> = ({
                   onClick={handleNextSseMatch}
                   disabled={matchedEventIds.length === 0}
                   className="p-0.5 hover:bg-hover rounded text-gray-400 hover:text-white disabled:opacity-30 transition"
-                  title="下一个匹配 (Enter)"
+                  title="下一个匹配"
                 >
                   <ChevronDown className="w-3 h-3" />
                 </button>
@@ -1649,7 +1787,7 @@ export const SseWorkbench: React.FC<SseWorkbenchProps> = ({
     <div className="flex-1 flex flex-col h-full overflow-hidden bg-canvas select-none">
       {/* Top Bar: Name & Actions */}
       <div className="h-11 px-4 border-b border-line flex items-center justify-between bg-subtle shrink-0">
-        <div className="flex items-center gap-3 w-1/2">
+        <div className="flex items-center gap-2.5 max-w-[65%]">
           <input
             type="text"
             value={api.name || ''}
@@ -1661,8 +1799,67 @@ export const SseWorkbench: React.FC<SseWorkbenchProps> = ({
               }
             }}
             placeholder="SSE 接口名称"
-            className="bg-transparent border-none text-sm font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-accent px-2 py-0.5 rounded flex-1"
+            className="bg-transparent border-none text-sm font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-accent px-2 py-0.5 rounded flex-1 min-w-[120px]"
           />
+          {onMoveApi && (
+            <button
+              type="button"
+              onClick={() => setIsMoveModalOpen(true)}
+              className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs bg-canvas/60 hover:bg-hover border border-line text-gray-400 hover:text-foreground transition group shrink-0"
+              title="当前所属目录 (点击更换目录)"
+            >
+              <Folder className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              <span className="max-w-[130px] truncate">{currentFolderName}</span>
+              <ChevronDown className="w-3 h-3 text-gray-500 group-hover:text-foreground shrink-0" />
+            </button>
+          )}
+        </div>
+
+        {/* Right side: Save As, Share, and Code Drawer buttons */}
+        <div className="flex items-center gap-1.5 text-xs">
+          {onSaveAs && (
+            <Tooltip content="另存为 (复制为新接口)" delayMs={400}>
+              <button
+                type="button"
+                onClick={onSaveAs}
+                className="p-1.5 hover:bg-hover rounded-lg border border-line text-gray-400 hover:text-foreground transition flex items-center justify-center"
+                aria-label="另存为"
+              >
+                <BookmarkPlus className="w-4 h-4" />
+              </button>
+            </Tooltip>
+          )}
+
+          {onOpenShare && (
+            <Tooltip content="生成局域网免登录在线分享文档" delayMs={400}>
+              <button
+                type="button"
+                onClick={onOpenShare}
+                className="p-1.5 hover:bg-hover rounded-lg border border-line text-gray-400 hover:text-foreground transition flex items-center justify-center"
+                aria-label="分享接口"
+              >
+                <Share2 className="w-4 h-4" />
+              </button>
+            </Tooltip>
+          )}
+
+          <Tooltip
+            content={isCodeDrawerOpen ? '收起代码侧边栏' : '生成客户端代码 (右侧抽屉)'}
+            delayMs={400}
+          >
+            <button
+              type="button"
+              onClick={() => setIsCodeDrawerOpen(!isCodeDrawerOpen)}
+              className={`p-1.5 rounded-lg border transition flex items-center justify-center ${
+                isCodeDrawerOpen
+                  ? 'bg-accent/20 text-accent border-accent/40 shadow-sm'
+                  : 'bg-subtle hover:bg-hover border-line text-accent hover:text-accent-hover'
+              }`}
+              aria-label="生成客户端代码"
+            >
+              <Code2 className="w-4 h-4" />
+            </button>
+          </Tooltip>
         </div>
       </div>
 
@@ -1818,6 +2015,28 @@ export const SseWorkbench: React.FC<SseWorkbenchProps> = ({
           />
         </div>
       </div>
+
+      {/* Multi-language Code Generator Drawer */}
+      <CodeDrawer
+        isOpen={isCodeDrawerOpen}
+        onClose={() => setIsCodeDrawerOpen(false)}
+        api={React.useMemo(() => ParamUtils.mergeApiWithFolderParams(api, treeItems, folderDetails), [api, treeItems, folderDetails])}
+        preUrl={preUrl}
+        availableVars={allVars}
+      />
+
+      {/* Move to directory modal */}
+      <MoveToModal
+        isOpen={isMoveModalOpen}
+        onClose={() => setIsMoveModalOpen(false)}
+        targetNode={api}
+        treeItems={treeItems}
+        onMove={async (targetId, newParentId) => {
+          if (onMoveApi) {
+            await onMoveApi(targetId, newParentId);
+          }
+        }}
+      />
     </div>
   );
 };

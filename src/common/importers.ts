@@ -572,8 +572,14 @@ export class DataImporters {
   ): ApiDetail {
     const parsed = this.parseCurl(curlStr);
     const targetUrl = preUrl ? UrlUtils.stripBaseUrl(parsed.url, preUrl) : parsed.url;
-    const { queryParams } = UrlUtils.syncUrlToParams(targetUrl);
-    const pathParams = UrlUtils.extractPathParams(targetUrl, []);
+    const { cleanUrl, queryParams } = UrlUtils.syncUrlToParams(
+      targetUrl,
+      baseApi?.request?.query?.parameter || []
+    );
+    const pathParams = UrlUtils.extractPathParams(
+      cleanUrl,
+      baseApi?.request?.path?.parameter || []
+    );
 
     // Filter out redundant raw Cookie header if cookies were structured into request.cookie.parameter
     const filteredHeaders =
@@ -586,7 +592,7 @@ export class DataImporters {
       target_id: base.target_id || `api-${Date.now()}`,
       parent_id: base.parent_id || '0',
       project_id: base.project_id || '',
-      target_type: 'api',
+      target_type: base.target_type || 'api',
       name:
         base.name &&
         base.name !== '新建接口' &&
@@ -595,7 +601,7 @@ export class DataImporters {
           ? base.name
           : parsed.name,
       method: parsed.method,
-      url: targetUrl,
+      url: cleanUrl,
       sort: base.sort || 1000,
       status: base.status ?? 1,
       request: {
@@ -1117,8 +1123,8 @@ export class DataImporters {
     parentId: string = '0'
   ): ApiDetail {
     const safeUrl = (item.url || '').trim();
-    const { queryParams } = UrlUtils.syncUrlToParams(safeUrl, item.queryParams || []);
-    const pathParams = UrlUtils.extractPathParams(safeUrl, item.pathParams || []);
+    const { cleanUrl, queryParams } = UrlUtils.syncUrlToParams(safeUrl, item.queryParams || []);
+    const pathParams = UrlUtils.extractPathParams(cleanUrl, item.pathParams || []);
 
     return {
       target_id: targetId,
@@ -1127,7 +1133,7 @@ export class DataImporters {
       target_type: 'api',
       name: (item.name || safeUrl || '未命名接口').trim(),
       method: (item.method || 'GET').toUpperCase() as HttpMethod,
-      url: safeUrl,
+      url: cleanUrl,
       sort: Date.now(),
       status: 1,
       request: {

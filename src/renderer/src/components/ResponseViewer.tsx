@@ -171,7 +171,7 @@ export const ResponseViewer: React.FC<ResponseViewerProps> = ({
         .join('\n');
     } else if (actualSubTab === 'query') {
       text = Object.entries(actualQuery)
-        .map(([k, v]) => `${k}: ${v}`)
+        .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : v}`)
         .join('\n');
     } else if (actualSubTab === 'path') {
       text = Object.entries(actualPath)
@@ -702,7 +702,7 @@ export const ResponseViewer: React.FC<ResponseViewerProps> = ({
                             className="grid grid-cols-[220px_1fr] py-1.5 px-3 hover:bg-hover/40 font-mono text-xs"
                           >
                             <div className="text-gray-300 font-medium select-all">{k}</div>
-                            <div className="text-gray-400 select-all break-all">{v}</div>
+                            <div className="text-gray-400 select-all break-all">{Array.isArray(v) ? v.join(', ') : v}</div>
                           </div>
                         ))
                       )}

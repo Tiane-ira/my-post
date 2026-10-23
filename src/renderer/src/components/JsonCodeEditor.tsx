@@ -695,7 +695,7 @@ export const JsonCodeEditor: React.FC<JsonCodeEditorProps> = ({
                 type="button"
                 onClick={handleFormat}
                 className="p-1.5 rounded hover:bg-hover text-gray-400 hover:text-foreground transition flex items-center justify-center"
-                title="美化 JSON 结构 (Ctrl+Alt+L)"
+                title="美化 JSON 结构"
                 aria-label="美化 JSON"
               >
                 <Sparkles className="w-3.5 h-3.5 text-amber-400" />
@@ -716,7 +716,7 @@ export const JsonCodeEditor: React.FC<JsonCodeEditorProps> = ({
                   ? 'bg-accent/15 text-accent'
                   : 'text-gray-400 hover:text-foreground'
               }`}
-              title="搜索 (Ctrl+F) / 替换 (Ctrl+H)"
+              title="搜索 (Ctrl+F)"
             >
               <Search className="w-3.5 h-3.5" />
             </button>
@@ -770,7 +770,7 @@ export const JsonCodeEditor: React.FC<JsonCodeEditorProps> = ({
                     setShowSearch(false);
                   }
                 }}
-                placeholder="搜索 (Enter 下一个, Shift+Enter 上一个)..."
+                placeholder="搜索内容..."
                 className="w-full bg-subtle border border-line rounded pl-7 pr-14 py-1 text-xs text-foreground placeholder:text-gray-500 focus:outline-none focus:border-accent font-mono"
               />
               <span className="absolute right-2 text-[10px] font-mono text-gray-400 select-none">
@@ -802,7 +802,7 @@ export const JsonCodeEditor: React.FC<JsonCodeEditorProps> = ({
               onClick={handlePrevMatch}
               disabled={searchMatches.length === 0}
               className="p-1 rounded hover:bg-hover text-gray-400 hover:text-foreground disabled:opacity-30"
-              title="上一个 (Shift+Enter)"
+              title="上一个匹配"
             >
               <ChevronUp className="w-3.5 h-3.5" />
             </button>
@@ -811,7 +811,7 @@ export const JsonCodeEditor: React.FC<JsonCodeEditorProps> = ({
               onClick={handleNextMatch}
               disabled={searchMatches.length === 0}
               className="p-1 rounded hover:bg-hover text-gray-400 hover:text-foreground disabled:opacity-30"
-              title="下一个 (Enter)"
+              title="下一个匹配"
             >
               <ChevronDown className="w-3.5 h-3.5" />
             </button>
@@ -824,7 +824,7 @@ export const JsonCodeEditor: React.FC<JsonCodeEditorProps> = ({
                 className={`p-1 rounded hover:bg-hover transition ${
                   showReplace ? 'text-accent bg-accent/15' : 'text-gray-400 hover:text-foreground'
                 }`}
-                title="展开/折叠替换 (Ctrl+H)"
+                title="展开/折叠替换"
               >
                 <Replace className="w-3.5 h-3.5" />
               </button>
@@ -838,7 +838,7 @@ export const JsonCodeEditor: React.FC<JsonCodeEditorProps> = ({
                 setShowReplace(false);
               }}
               className="p-1 rounded hover:bg-hover text-gray-400 hover:text-foreground"
-              title="关闭搜索 (Esc)"
+              title="关闭搜索"
             >
               <X className="w-3.5 h-3.5" />
             </button>

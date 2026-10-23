@@ -20,12 +20,14 @@ import {
   PanelLeftOpen,
   Edit2,
   Radio,
-  Zap
+  Zap,
+  FolderInput
 } from 'lucide-react';
 import { ApiTreeNode, HttpMethod } from '../../../common/types';
 import { TreeUtils } from '../../../common/treeUtils';
 import { useFeedback } from './FeedbackContext';
 import { Tooltip } from './Tooltip';
+import { MoveToModal } from './MoveToModal';
 
 interface SidebarProps {
   treeItems: ApiTreeNode[];
@@ -71,6 +73,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onClearRootApis,
   onRenameNode,
   onReorderTree,
+  onMoveApi,
   onOpenImport,
   onOpenShareFolder,
   onOpenSettings,
@@ -78,6 +81,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onToggleCollapse,
 }) => {
   const { confirm, toast } = useFeedback();
+  const [isMoveModalOpen, setIsMoveModalOpen] = useState(false);
+  const [movingNode, setMovingNode] = useState<ApiTreeNode | null>(null);
   const [isRootCollapsed, setIsRootCollapsed] = useState(false);
   const [collapsedFolders, setCollapsedFolders] = useState<Record<string, boolean>>({});
   const [searchQuery, setSearchQuery] = useState('');
@@ -1174,6 +1179,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <span>分享目录文档</span>
                   </button>
                 )}
+                {onMoveApi && !contextMenu.isRoot && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMovingNode(contextMenu.node);
+                      setIsMoveModalOpen(true);
+                      setContextMenu(null);
+                    }}
+                    className="w-full text-left px-3 py-1.5 hover:bg-hover flex items-center gap-2 text-gray-200 transition"
+                  >
+                    <FolderInput className="w-3.5 h-3.5 text-amber-400" />
+                    <span>移动到目录...</span>
+                  </button>
+                )}
                 <div className="h-[1px] bg-line my-1" />
                 <button
                   type="button"
@@ -1215,6 +1234,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <span>克隆接口</span>
                   </button>
                 )}
+                {onMoveApi && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMovingNode(contextMenu.node);
+                      setIsMoveModalOpen(true);
+                      setContextMenu(null);
+                    }}
+                    className="w-full text-left px-3 py-1.5 hover:bg-hover flex items-center gap-2 text-gray-200 transition"
+                  >
+                    <FolderInput className="w-3.5 h-3.5 text-amber-400" />
+                    <span>移动到目录...</span>
+                  </button>
+                )}
                 <div className="h-[1px] bg-line my-1" />
                 <button
                   type="button"
@@ -1233,6 +1266,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>,
           document.body
         )}
+
+      <MoveToModal
+        isOpen={isMoveModalOpen}
+        onClose={() => {
+          setIsMoveModalOpen(false);
+          setMovingNode(null);
+        }}
+        targetNode={movingNode}
+        treeItems={treeItems}
+        onMove={async (targetId, newParentId) => {
+          if (onMoveApi) {
+            await onMoveApi(targetId, newParentId);
+          }
+        }}
+      />
     </div>
   );
 };

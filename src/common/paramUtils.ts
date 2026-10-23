@@ -42,14 +42,22 @@ export class ParamUtils {
     const headers: InheritedParamItem[] = [];
     const query: InheritedParamItem[] = [];
 
+    const isParamChecked = (item: any): boolean => {
+      if (!item || typeof item !== 'object') return false;
+      return item.is_checked === undefined || item.is_checked === 1 || item.is_checked === true || item.is_checked === '1';
+    };
+
     // 1. Ancestor Folder Parameters (Root -> Immediate Parent)
-    const ancestorNodes = this.getAncestorFolders(treeItems, api.parent_id).reverse();
+    // Resolve current effective parent_id: prefer current tree position if treeItems contains api.target_id
+    const treeNode = (treeItems || []).find((t) => t.target_id === api.target_id);
+    const effectiveParentId = (treeNode && treeNode.parent_id !== undefined) ? treeNode.parent_id : (api.parent_id || '0');
+    const ancestorNodes = this.getAncestorFolders(treeItems, effectiveParentId).reverse();
 
     // Check root folder ('0') first
     const rootDetail = folderDetailsCache['0'];
     if (rootDetail?.request?.header?.parameter) {
       for (const item of rootDetail.request.header.parameter) {
-        if (item.key && item.is_checked === 1) {
+        if (item.key && isParamChecked(item)) {
           headers.push({
             key: item.key,
             value: item.value || '',
@@ -63,7 +71,7 @@ export class ParamUtils {
     }
     if (rootDetail?.request?.query?.parameter) {
       for (const item of rootDetail.request.query.parameter) {
-        if (item.key && item.is_checked === 1) {
+        if (item.key && isParamChecked(item)) {
           query.push({
             key: item.key,
             value: item.value || '',
@@ -81,7 +89,7 @@ export class ParamUtils {
       const folderDetail = folderDetailsCache[folderNode.target_id];
       if (folderDetail?.request?.header?.parameter) {
         for (const item of folderDetail.request.header.parameter) {
-          if (item.key && item.is_checked === 1) {
+          if (item.key && isParamChecked(item)) {
             headers.push({
               key: item.key,
               value: item.value || '',
@@ -95,7 +103,7 @@ export class ParamUtils {
       }
       if (folderDetail?.request?.query?.parameter) {
         for (const item of folderDetail.request.query.parameter) {
-          if (item.key && item.is_checked === 1) {
+          if (item.key && isParamChecked(item)) {
             query.push({
               key: item.key,
               value: item.value || '',
@@ -228,5 +236,92 @@ export class ParamUtils {
     });
 
     return { headers, query };
+  }
+
+  /**
+   * Merges all ancestor folder parameters into an ApiDetail copy.
+   * Folder parameters are inherited in top-down order, and the api's own explicit
+   * parameters override matching folder keys (case-insensitively for headers).
+   */
+  public static mergeApiWithFolderParams(
+    api: ApiDetail,
+    treeItems: ApiTreeNode[] = [],
+    folderDetailsCache: Record<string, any> = {}
+  ): ApiDetail {
+    const folderHeaders: KeyValueItem[] = [];
+    const folderQueryParams: KeyValueItem[] = [];
+
+    const isParamChecked = (item: any): boolean => {
+      if (!item || typeof item !== 'object') return false;
+      return item.is_checked === undefined || item.is_checked === 1 || item.is_checked === true || item.is_checked === '1';
+    };
+
+    // Ancestor folders from root to immediate parent
+    const treeNode = (treeItems || []).find((t) => t.target_id === api.target_id);
+    const effectiveParentId = (treeNode && treeNode.parent_id !== undefined) ? treeNode.parent_id : (api.parent_id || '0');
+    const ancestorNodes = this.getAncestorFolders(treeItems, effectiveParentId).reverse();
+
+    // Check root folder ('0') first
+    const rootDetail = folderDetailsCache['0'];
+    if (rootDetail?.request?.header?.parameter) {
+      folderHeaders.push(
+        ...rootDetail.request.header.parameter.filter((h: any) => isParamChecked(h) && h.key)
+      );
+    }
+    if (rootDetail?.request?.query?.parameter) {
+      folderQueryParams.push(
+        ...rootDetail.request.query.parameter.filter((q: any) => isParamChecked(q) && q.key)
+      );
+    }
+
+    // Top-to-bottom ancestor folders
+    for (const folderNode of ancestorNodes) {
+      const folderDetail = folderDetailsCache[folderNode.target_id];
+      if (folderDetail?.request?.header?.parameter) {
+        folderHeaders.push(
+          ...folderDetail.request.header.parameter.filter((h: any) => isParamChecked(h) && h.key)
+        );
+      }
+      if (folderDetail?.request?.query?.parameter) {
+        folderQueryParams.push(
+          ...folderDetail.request.query.parameter.filter((q: any) => isParamChecked(q) && q.key)
+        );
+      }
+    }
+
+    // Header deduplication: API's own active headers override folder headers (case-insensitively)
+    const apiHeaders = (api.request?.header?.parameter || []).filter(
+      (h: any) => isParamChecked(h) && h.key
+    );
+    const apiHeaderKeyMap = new Set(apiHeaders.map((h: any) => h.key.trim().toLowerCase()));
+    const effectiveFolderHeaders = folderHeaders.filter(
+      (h) => !apiHeaderKeyMap.has(h.key.trim().toLowerCase())
+    );
+    const mergedHeaders = [...effectiveFolderHeaders, ...(api.request?.header?.parameter || [])];
+
+    // Query deduplication: API's own active query params override folder query params
+    const apiQueryParams = (api.request?.query?.parameter || []).filter(
+      (q: any) => isParamChecked(q) && q.key
+    );
+    const apiQueryKeyMap = new Set(apiQueryParams.map((q: any) => q.key.trim()));
+    const effectiveFolderQueryParams = folderQueryParams.filter(
+      (q) => !apiQueryKeyMap.has(q.key.trim())
+    );
+    const mergedQuery = [...effectiveFolderQueryParams, ...(api.request?.query?.parameter || [])];
+
+    return {
+      ...api,
+      request: {
+        ...api.request,
+        header: {
+          ...api.request?.header,
+          parameter: mergedHeaders,
+        },
+        query: {
+          ...api.request?.query,
+          parameter: mergedQuery,
+        },
+      },
+    };
   }
 }

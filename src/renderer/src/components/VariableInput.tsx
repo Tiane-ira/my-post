@@ -7,6 +7,12 @@ export interface VariableItem {
   source: 'env' | 'global';
 }
 
+export interface InputSuggestion {
+  value: string;
+  description?: string;
+  badge?: string;
+}
+
 interface VariableInputProps {
   value: string;
   onChange: (val: string) => void;
@@ -14,6 +20,7 @@ interface VariableInputProps {
   className?: string;
   availableVars?: Record<string, VariableItem>;
   type?: string;
+  suggestions?: Array<string | InputSuggestion>;
   onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
   onPaste?: (e: React.ClipboardEvent<HTMLInputElement>) => void;
 }
@@ -33,10 +40,12 @@ export const VariableInput: React.FC<VariableInputProps> = ({
   className = '',
   availableVars = {},
   type = 'text',
+  suggestions,
   onKeyDown,
   onPaste,
 }) => {
   const [showDropdown, setShowDropdown] = useState(false);
+  const [dropdownMode, setDropdownMode] = useState<'variable' | 'suggestion' | null>(null);
   const [filterQuery, setFilterQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [cursorPos, setCursorPos] = useState<number>(0);
@@ -132,12 +141,32 @@ export const VariableInput: React.FC<VariableInputProps> = ({
     );
   }, [varList, filterQuery]);
 
-  // Keep selectedIndex within valid bounds whenever filteredList changes
+  const normalizedSuggestions = useMemo<InputSuggestion[]>(() => {
+    if (!suggestions || suggestions.length === 0) return [];
+    return suggestions.map((s) => (typeof s === 'string' ? { value: s } : s));
+  }, [suggestions]);
+
+  const filteredSuggestions = useMemo(() => {
+    if (normalizedSuggestions.length === 0) return [];
+    const q = strValue.trim().toLowerCase();
+    if (!q) return normalizedSuggestions.slice(0, 30);
+    return normalizedSuggestions
+      .filter(
+        (s) =>
+          s.value.toLowerCase().includes(q) ||
+          (s.description && s.description.toLowerCase().includes(q))
+      )
+      .slice(0, 30);
+  }, [normalizedSuggestions, strValue]);
+
+  // Keep selectedIndex within valid bounds whenever lists change
   useEffect(() => {
-    if (filteredList.length > 0 && selectedIndex >= filteredList.length) {
-      setSelectedIndex(filteredList.length - 1);
+    const maxLen =
+      dropdownMode === 'suggestion' ? filteredSuggestions.length : filteredList.length;
+    if (maxLen > 0 && selectedIndex >= maxLen) {
+      setSelectedIndex(maxLen - 1);
     }
-  }, [filteredList.length, selectedIndex]);
+  }, [filteredList.length, filteredSuggestions.length, selectedIndex, dropdownMode]);
 
   // Auto-scroll the active candidate element into view inside the dropdown list
   useEffect(() => {
@@ -174,42 +203,55 @@ export const VariableInput: React.FC<VariableInputProps> = ({
     }
   }, []);
 
-  // Check if dropdown candidates should trigger based on unclosed "{{"
-  const checkDropdownTrigger = useCallback((val: string, pos: number) => {
-    const textBeforeCursor = val.slice(0, pos);
-    const lastOpenIndex = textBeforeCursor.lastIndexOf('{{');
-    const lastCloseIndex = textBeforeCursor.lastIndexOf('}}');
+  // Check if dropdown candidates should trigger based on unclosed "{{" or suggestions
+  const checkDropdownTrigger = useCallback(
+    (val: string, pos: number, allowSuggestions = true) => {
+      const textBeforeCursor = val.slice(0, pos);
+      const lastOpenIndex = textBeforeCursor.lastIndexOf('{{');
+      const lastCloseIndex = textBeforeCursor.lastIndexOf('}}');
 
-    if (lastOpenIndex !== -1 && lastOpenIndex > lastCloseIndex) {
-      const query = textBeforeCursor.slice(lastOpenIndex + 2).trim();
-      setFilterQuery((prevQuery) => {
-        // Only reset selectedIndex when the actual query filter string has changed
-        if (prevQuery !== query) {
-          setSelectedIndex(0);
-        }
-        return query;
-      });
-      setShowDropdown(true);
-      updateDropdownPos();
-    } else {
+      if (lastOpenIndex !== -1 && lastOpenIndex > lastCloseIndex) {
+        const query = textBeforeCursor.slice(lastOpenIndex + 2).trim();
+        setFilterQuery((prevQuery) => {
+          if (prevQuery !== query) {
+            setSelectedIndex(0);
+          }
+          return query;
+        });
+        setDropdownMode('variable');
+        setShowDropdown(true);
+        updateDropdownPos();
+        return;
+      }
+
+      if (allowSuggestions && normalizedSuggestions.length > 0) {
+        setDropdownMode('suggestion');
+        setSelectedIndex(0);
+        setShowDropdown(true);
+        updateDropdownPos();
+        return;
+      }
+
       setShowDropdown(false);
-    }
-  }, [updateDropdownPos]);
+      setDropdownMode(null);
+    },
+    [normalizedSuggestions.length, updateDropdownPos]
+  );
 
-  // Handle typing & trigger candidates on "{{"
+  // Handle typing & trigger candidates
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     const pos = e.target.selectionStart || 0;
     setCursorPos(pos);
     onChange(val);
-    checkDropdownTrigger(val, pos);
+    checkDropdownTrigger(val, pos, true);
   };
 
   const handleInputClickOrSelect = () => {
     if (inputRef.current) {
       const pos = inputRef.current.selectionStart || 0;
       setCursorPos(pos);
-      checkDropdownTrigger(strValue, pos);
+      checkDropdownTrigger(strValue, pos, true);
     }
   };
 
@@ -231,6 +273,7 @@ export const VariableInput: React.FC<VariableInputProps> = ({
     const newVal = `${prefix}{{${varKey}}}${cleanSuffix}`;
     onChange(newVal);
     setShowDropdown(false);
+    setDropdownMode(null);
 
     setTimeout(() => {
       if (inputRef.current) {
@@ -241,37 +284,59 @@ export const VariableInput: React.FC<VariableInputProps> = ({
     }, 10);
   };
 
+  const handleSelectSuggestion = (suggestedValue: string) => {
+    onChange(suggestedValue);
+    setShowDropdown(false);
+    setDropdownMode(null);
+
+    setTimeout(() => {
+      if (inputRef.current) {
+        inputRef.current.focus();
+        inputRef.current.setSelectionRange(suggestedValue.length, suggestedValue.length);
+      }
+    }, 10);
+  };
+
   // Keyboard navigation inside dropdown
   const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (showDropdown) {
+      const currentListLength =
+        dropdownMode === 'suggestion' ? filteredSuggestions.length : filteredList.length;
+
       if (e.key === 'ArrowDown') {
         e.preventDefault();
         e.stopPropagation();
-        if (filteredList.length > 0) {
-          setSelectedIndex((prev) => (prev + 1) % filteredList.length);
+        if (currentListLength > 0) {
+          setSelectedIndex((prev) => (prev + 1) % currentListLength);
         }
         return;
       }
       if (e.key === 'ArrowUp') {
         e.preventDefault();
         e.stopPropagation();
-        if (filteredList.length > 0) {
-          setSelectedIndex((prev) => (prev - 1 + filteredList.length) % filteredList.length);
+        if (currentListLength > 0) {
+          setSelectedIndex((prev) => (prev - 1 + currentListLength) % currentListLength);
         }
         return;
       }
       if (e.key === 'Enter' || e.key === 'Tab') {
-        if (filteredList.length > 0 && filteredList[selectedIndex]) {
+        if (currentListLength > 0) {
           e.preventDefault();
           e.stopPropagation();
-          handleSelectVar(filteredList[selectedIndex][0]);
-          return;
+          if (dropdownMode === 'suggestion' && filteredSuggestions[selectedIndex]) {
+            handleSelectSuggestion(filteredSuggestions[selectedIndex].value);
+            return;
+          } else if (dropdownMode === 'variable' && filteredList[selectedIndex]) {
+            handleSelectVar(filteredList[selectedIndex][0]);
+            return;
+          }
         }
       }
       if (e.key === 'Escape') {
         e.preventDefault();
         e.stopPropagation();
         setShowDropdown(false);
+        setDropdownMode(null);
         return;
       }
     }
@@ -470,67 +535,129 @@ export const VariableInput: React.FC<VariableInputProps> = ({
             }}
             className="bg-surface/95 backdrop-blur-md border border-line rounded-xl shadow-2xl py-1.5 text-xs select-none"
           >
-            <div className="px-3 py-1.5 text-[10px] text-gray-400 font-semibold border-b border-line flex items-center justify-between">
-              <span className="flex items-center gap-1.5 text-gray-200">
-                <Sparkles className="w-3.5 h-3.5 text-accent" />
-                <span>环境变量候选</span>
-              </span>
-              <span className="text-[10px] text-amber-400 font-mono">
-                &#123;&#123;{filterQuery}&#125;&#125;
-              </span>
-            </div>
+            {dropdownMode === 'suggestion' ? (
+              <>
+                <div className="px-3 py-1.5 text-[10px] text-gray-400 font-semibold border-b border-line flex items-center justify-between">
+                  <span className="flex items-center gap-1.5 text-gray-200">
+                    <Sparkles className="w-3.5 h-3.5 text-accent" />
+                    <span>常用候选 ({filteredSuggestions.length})</span>
+                  </span>
+                  <span className="text-[10px] text-gray-400 font-sans">
+                    可直接选择或自由输入
+                  </span>
+                </div>
 
-            {filteredList.length > 0 ? (
-              <div ref={listRef} className="max-h-52 overflow-y-auto divide-y divide-line/60">
-                {filteredList.map(([key, item], idx) => (
-                  <button
-                    key={key}
-                    type="button"
-                    onMouseEnter={() => setSelectedIndex(idx)}
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      handleSelectVar(key);
-                    }}
-                    className={`w-full text-left px-3 py-2 flex items-center justify-between group transition-colors duration-75 cursor-pointer ${
-                      idx === selectedIndex
-                        ? 'bg-accent/20 text-foreground font-medium'
-                        : 'hover:bg-hover/60 text-gray-300'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2 truncate min-w-0">
-                      <span className="font-mono text-amber-300 font-bold shrink-0">
-                        &#123;&#123;{key}&#125;&#125;
-                      </span>
-                      <span className="text-gray-400 truncate text-[11px] max-w-[130px]">
-                        = {item.value || '(空)'}
-                      </span>
-                    </div>
-                    <span
-                      className={`text-[9px] px-1.5 py-0.5 rounded font-semibold uppercase shrink-0 ${
-                        item.source === 'env'
-                          ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
-                          : 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
-                      }`}
-                    >
-                      {item.source === 'env' ? '环境变量' : '全局变量'}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <div className="p-3 text-center text-gray-500 text-[11px]">
-                {varList.length === 0 ? (
-                  <span>暂无可用环境变量或全局变量，可在环境管理中添加</span>
+                {filteredSuggestions.length > 0 ? (
+                  <div ref={listRef} className="max-h-52 overflow-y-auto divide-y divide-line/60">
+                    {filteredSuggestions.map((sug, idx) => (
+                      <button
+                        key={`${sug.value}-${idx}`}
+                        type="button"
+                        onMouseEnter={() => setSelectedIndex(idx)}
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          handleSelectSuggestion(sug.value);
+                        }}
+                        className={`w-full text-left px-3 py-1.5 flex items-center justify-between group transition-colors duration-75 cursor-pointer ${
+                          idx === selectedIndex
+                            ? 'bg-accent/20 text-foreground font-medium'
+                            : 'hover:bg-hover/60 text-gray-300'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 truncate min-w-0">
+                          <span className="font-mono text-emerald-400 font-semibold text-xs shrink-0">
+                            {sug.value}
+                          </span>
+                          {sug.description && (
+                            <span className="text-gray-400 truncate text-[10px] max-w-[150px]">
+                              · {sug.description}
+                            </span>
+                          )}
+                        </div>
+                        {sug.badge && (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded font-semibold uppercase shrink-0 bg-subtle text-gray-400 border border-line">
+                            {sug.badge}
+                          </span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
                 ) : (
-                  <span>未匹配到符合 &quot;{filterQuery}&quot; 的变量</span>
+                  <div className="p-3 text-center text-gray-500 text-[11px]">
+                    <span>未匹配到常用候选，可自由输入或键入 &#123;&#123; 引用变量</span>
+                  </div>
                 )}
-              </div>
-            )}
 
-            <div className="px-3 py-1 bg-subtle/50 border-t border-line/60 text-[10px] text-gray-400 flex items-center justify-between">
-              <span>↑↓ 导航 · Enter / Tab 选择</span>
-              <span>Esc 关闭</span>
-            </div>
+                <div className="px-3 py-1 bg-subtle/50 border-t border-line/60 text-[10px] text-gray-400 flex items-center justify-between">
+                  <span>↑↓ 导航 · Enter / Tab 选择</span>
+                  <span>输入 &#123;&#123; 插入变量</span>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="px-3 py-1.5 text-[10px] text-gray-400 font-semibold border-b border-line flex items-center justify-between">
+                  <span className="flex items-center gap-1.5 text-gray-200">
+                    <Sparkles className="w-3.5 h-3.5 text-accent" />
+                    <span>环境变量候选</span>
+                  </span>
+                  <span className="text-[10px] text-amber-400 font-mono">
+                    &#123;&#123;{filterQuery}&#125;&#125;
+                  </span>
+                </div>
+
+                {filteredList.length > 0 ? (
+                  <div ref={listRef} className="max-h-52 overflow-y-auto divide-y divide-line/60">
+                    {filteredList.map(([key, item], idx) => (
+                      <button
+                        key={key}
+                        type="button"
+                        onMouseEnter={() => setSelectedIndex(idx)}
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          handleSelectVar(key);
+                        }}
+                        className={`w-full text-left px-3 py-2 flex items-center justify-between group transition-colors duration-75 cursor-pointer ${
+                          idx === selectedIndex
+                            ? 'bg-accent/20 text-foreground font-medium'
+                            : 'hover:bg-hover/60 text-gray-300'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 truncate min-w-0">
+                          <span className="font-mono text-amber-300 font-bold shrink-0">
+                            &#123;&#123;{key}&#125;&#125;
+                          </span>
+                          <span className="text-gray-400 truncate text-[11px] max-w-[130px]">
+                            = {item.value || '(空)'}
+                          </span>
+                        </div>
+                        <span
+                          className={`text-[9px] px-1.5 py-0.5 rounded font-semibold uppercase shrink-0 ${
+                            item.source === 'env'
+                              ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
+                              : 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
+                          }`}
+                        >
+                          {item.source === 'env' ? '环境变量' : '全局变量'}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="p-3 text-center text-gray-500 text-[11px]">
+                    {varList.length === 0 ? (
+                      <span>暂无可用环境变量或全局变量，可在环境管理中添加</span>
+                    ) : (
+                      <span>未匹配到符合 &quot;{filterQuery}&quot; 的变量</span>
+                    )}
+                  </div>
+                )}
+
+                <div className="px-3 py-1 bg-subtle/50 border-t border-line/60 text-[10px] text-gray-400 flex items-center justify-between">
+                  <span>↑↓ 导航 · Enter / Tab 选择</span>
+                  <span>Esc 关闭</span>
+                </div>
+              </>
+            )}
           </div>,
           document.body
         )}

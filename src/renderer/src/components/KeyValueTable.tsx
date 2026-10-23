@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { KeyValueItem, ParamDataType } from '../../../common/types';
 import { InheritedParamItem } from '../../../common/paramUtils';
+import { getHeaderKeySuggestions, getHeaderValueSuggestions } from '../../../common/headerConstants';
 import { VariableInput, VariableItem } from './VariableInput';
 
 interface KeyValueTableProps {
@@ -89,6 +90,37 @@ export const KeyValueTable: React.FC<KeyValueTableProps> = ({
       (inh): inh is InheritedParamItem => Boolean(inh && typeof inh === 'object' && inh.key)
     );
   }, [inheritedItems]);
+
+  const resolveInheritedValue = (val: string): { resolved: string; hasPlaceholder: boolean } => {
+    if (!val || typeof val !== 'string') return { resolved: val || '', hasPlaceholder: false };
+    let hasPlaceholder = false;
+    const resolved = val.replace(/\{\{([^{}]+)\}\}/g, (match, rawKey) => {
+      hasPlaceholder = true;
+      const k = rawKey.trim();
+      if (availableVars[k]?.value !== undefined) {
+        return availableVars[k].value;
+      }
+      return match;
+    });
+    return { resolved, hasPlaceholder };
+  };
+
+  const folderInheritedCount = React.useMemo(
+    () => safeInherited.filter((i) => i.source === 'folder').length,
+    [safeInherited]
+  );
+  const authInheritedCount = React.useMemo(
+    () => safeInherited.filter((i) => i.source === 'auth').length,
+    [safeInherited]
+  );
+  const systemInheritedCount = React.useMemo(
+    () => safeInherited.filter((i) => i.source === 'system').length,
+    [safeInherited]
+  );
+
+  const headerKeySuggestions = React.useMemo(() => {
+    return isHeaderTable ? getHeaderKeySuggestions() : [];
+  }, [isHeaderTable]);
 
   const handleToggle = (index: number) => {
     const next = [...safeItems];
@@ -282,84 +314,122 @@ export const KeyValueTable: React.FC<KeyValueTableProps> = ({
           <div className="text-center">操作</div>
         </div>
 
-        {/* Inherited & Implicit Parameters Section (Folded by default) */}
+        {/* Simplified & Clean Inherited Parameters Section */}
         {safeInherited.length > 0 && (
-          <div className="bg-subtle/30 border-b border-line">
+          <div className="bg-subtle/20 border-b border-line">
             <button
               type="button"
               onClick={() => setShowInherited(!showInherited)}
-              className="w-full px-3 py-1.5 flex items-center justify-between text-[11px] text-text-muted font-medium bg-canvas/30 hover:bg-hover/50 transition cursor-pointer select-none text-left"
+              className="w-full px-3 py-1 flex items-center justify-between text-[11px] hover:bg-hover/40 transition cursor-pointer select-none text-left"
             >
-              <div className="flex items-center gap-1.5 flex-wrap">
+              <div className="flex items-center gap-2">
                 {showInherited ? (
-                  <ChevronDown className="w-3.5 h-3.5 text-accent" />
+                  <ChevronDown className="w-3 h-3 text-accent" />
                 ) : (
-                  <ChevronRight className="w-3.5 h-3.5 text-gray-500" />
+                  <ChevronRight className="w-3 h-3 text-gray-400" />
                 )}
-                <span className="text-gray-300 font-semibold">继承与系统隐式参数</span>
-                <span className="text-[10px] px-1.5 py-0.2 rounded bg-surface border border-line text-gray-400 font-mono">
-                  {safeInherited.length} 项
+                <span className="text-gray-300 font-medium text-[11px]">继承参数</span>
+                <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-surface border border-line text-gray-400 font-mono">
+                  {safeInherited.length}
                 </span>
-                <span className="text-[10px] text-gray-500 font-normal">
-                  (上级目录、Auth 鉴权、系统默认参数)
-                </span>
+                <div className="flex items-center gap-1.5 text-[10px]">
+                  {folderInheritedCount > 0 && (
+                    <span className="text-amber-400/90 bg-amber-500/10 px-1.5 py-0.2 rounded font-sans">
+                      目录 {folderInheritedCount}
+                    </span>
+                  )}
+                  {authInheritedCount > 0 && (
+                    <span className="text-purple-400/90 bg-purple-500/10 px-1.5 py-0.2 rounded font-sans">
+                      鉴权 {authInheritedCount}
+                    </span>
+                  )}
+                  {systemInheritedCount > 0 && (
+                    <span className="text-sky-400/90 bg-sky-500/10 px-1.5 py-0.2 rounded font-sans">
+                      系统 {systemInheritedCount}
+                    </span>
+                  )}
+                </div>
               </div>
-              <span className="text-[10px] text-accent font-sans hover:underline">
-                {showInherited ? '收起' : '展开查看'}
+              <span className="text-[10px] text-gray-400 hover:text-accent transition">
+                {showInherited ? '收起' : '展开'}
               </span>
             </button>
 
             {showInherited && (
-              <div className="divide-y divide-line/60 border-t border-line/40">
-                {safeInherited.map((inh, iIdx) => (
-                  <div
-                    key={`inh-${inh.source}-${inh.key}-${iIdx}`}
-                    className={`grid ${
-                      showContentType
-                        ? showDescription
-                          ? 'grid-cols-[36px_1.5fr_1.5fr_1fr_1fr_36px]'
-                          : 'grid-cols-[36px_1.8fr_2fr_1.2fr_36px]'
-                        : showDescription
-                        ? 'grid-cols-[36px_1.5fr_1.7fr_1.2fr_36px]'
-                        : 'grid-cols-[36px_1.5fr_2fr_36px]'
-                    } items-center px-2 py-1 gap-2 text-xs transition ${
-                      inh.overridden ? 'opacity-40 line-through' : 'bg-surface/30'
-                    }`}
-                  >
-                    <div className="flex items-center justify-center">
-                      <span
-                        className={`text-[9px] font-bold px-1 py-0.5 rounded border select-none ${
-                          inh.source === 'folder'
-                            ? 'bg-amber-500/10 text-amber-500 border-amber-500/30'
-                            : inh.source === 'auth'
-                            ? 'bg-purple-500/10 text-purple-400 border-purple-500/30'
-                            : 'bg-sky-500/10 text-sky-400 border-sky-500/30'
-                        }`}
-                        title={inh.sourceName}
-                      >
-                        {inh.source === 'folder' ? '目录' : inh.source === 'auth' ? '鉴权' : '系统'}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-1 min-w-0 font-mono text-xs text-text-main font-semibold">
-                      <span className="truncate">{inh.key}</span>
-                      {inh.overridden && (
-                        <span className="text-[10px] text-rose-400 font-sans font-normal shrink-0 no-underline">
-                          (已覆盖)
+              <div className="px-3 py-1.5 bg-canvas/30 border-t border-line/40 space-y-1">
+                {safeInherited.map((inh, iIdx) => {
+                  const { resolved: resolvedVal, hasPlaceholder: hasValVar } = resolveInheritedValue(inh.value || '');
+                  const { resolved: resolvedKey, hasPlaceholder: hasKeyVar } = resolveInheritedValue(inh.key || '');
+
+                  return (
+                    <div
+                      key={`inh-${inh.source}-${inh.key}-${iIdx}`}
+                      className={`flex items-center justify-between gap-3 px-2 py-1 rounded text-xs transition ${
+                        inh.overridden
+                          ? 'opacity-40 bg-surface/20 line-through'
+                          : 'bg-surface/50 hover:bg-surface'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span
+                          className={`text-[9px] font-bold px-1 py-0.2 rounded shrink-0 ${
+                            inh.source === 'folder'
+                              ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
+                              : inh.source === 'auth'
+                              ? 'bg-purple-500/15 text-purple-400 border border-purple-500/30'
+                              : 'bg-sky-500/15 text-sky-400 border border-sky-500/30'
+                          }`}
+                          title={inh.sourceName}
+                        >
+                          {inh.source === 'folder' ? '目录' : inh.source === 'auth' ? '鉴权' : '系统'}
                         </span>
-                      )}
-                    </div>
-                    <div className="font-mono text-xs text-text-muted truncate select-text" title={inh.value}>
-                      {inh.value || '<空>'}
-                    </div>
-                    {showContentType && <div className="text-[11px] text-text-muted">-</div>}
-                    {showDescription && (
-                      <div className="text-[11px] text-text-muted truncate" title={inh.description || inh.sourceName}>
-                        {inh.description || inh.sourceName}
+                        <span
+                          className="font-mono font-semibold text-gray-200 truncate"
+                          title={hasKeyVar ? `原始参数名: ${inh.key}\n解析参数名: ${resolvedKey}` : inh.key}
+                        >
+                          {resolvedKey}
+                        </span>
+                        <span className="text-gray-500 text-[11px]">=</span>
+                        {hasValVar ? (
+                          <div className="flex items-center gap-1.5 min-w-0 max-w-[320px]">
+                            <span
+                              className="font-mono text-gray-400 text-[11px] bg-canvas/60 px-1 py-0.2 rounded border border-line/60 truncate max-w-[150px]"
+                              title={`原始占位变量: ${inh.value}`}
+                            >
+                              {inh.value}
+                            </span>
+                            <span className="text-gray-500 text-[10px] shrink-0">→</span>
+                            <span
+                              className="font-mono text-emerald-400 font-medium text-[11px] truncate max-w-[150px]"
+                              title={`变量已解析: ${resolvedVal}`}
+                            >
+                              {resolvedVal}
+                            </span>
+                          </div>
+                        ) : (
+                          <span
+                            className="font-mono text-gray-300 text-[11px] truncate max-w-[280px]"
+                            title={inh.value}
+                          >
+                            {inh.value || '<空>'}
+                          </span>
+                        )}
+                        {inh.overridden && (
+                          <span className="text-[9px] px-1 rounded bg-rose-500/15 text-rose-400 shrink-0 no-underline">
+                            已覆盖
+                          </span>
+                        )}
                       </div>
-                    )}
-                    <div className="text-center text-[10px] text-text-muted select-none">只读</div>
+
+                    <div
+                      className="text-[10px] text-gray-500 truncate text-right max-w-[240px] shrink-0"
+                      title={inh.description || inh.sourceName}
+                    >
+                      {inh.description || inh.sourceName}
+                    </div>
                   </div>
-                ))}
+                );
+              })}
               </div>
             )}
           </div>
@@ -407,6 +477,7 @@ export const KeyValueTable: React.FC<KeyValueTableProps> = ({
                     value={item.key}
                     onChange={(val) => handleFieldChange(index, 'key', val)}
                     availableVars={availableVars}
+                    suggestions={headerKeySuggestions}
                     className="flex-1 min-w-0 bg-transparent border-none text-gray-200 focus:outline-none rounded py-0.5"
                   />
 
@@ -518,6 +589,7 @@ export const KeyValueTable: React.FC<KeyValueTableProps> = ({
                     value={item.value}
                     onChange={(val) => handleFieldChange(index, 'value', val)}
                     availableVars={availableVars}
+                    suggestions={isHeaderTable ? getHeaderValueSuggestions(item.key) : undefined}
                     className="w-full bg-surface/60 border border-transparent focus-within:border-accent/50 text-gray-200 rounded px-1.5 py-0.5"
                   />
                 )}

@@ -168,5 +168,87 @@ describe('UrlUtils Bi-directional Synchronizer', () => {
       expect(UrlUtils.buildWsRequestUrl('localhost:8080/ws')).toBe('ws://localhost:8080/ws');
     });
   });
+
+  describe('applyPathParams', () => {
+    it('should replace :param and {param} tokens with encoded values for HTTP, SSE, and WebSocket', () => {
+      const httpUrl = '/api/v1/users/:userId/orders/{orderId}?status=paid';
+      const pathParams: KeyValueItem[] = [
+        { key: 'userId', value: '10086', is_checked: 1 },
+        { key: '{orderId}', value: 'ord-999', is_checked: 1 },
+      ];
+
+      const res = UrlUtils.applyPathParams(httpUrl, pathParams);
+      expect(res.url).toBe('/api/v1/users/10086/orders/ord-999?status=paid');
+      expect(res.appliedParams).toEqual({
+        userId: '10086',
+        orderId: 'ord-999',
+      });
+    });
+
+    it('should support WebSocket URLs with path parameters', () => {
+      const wsUrl = 'wss://echo.websocket.events/chat/:channelId/stream';
+      const pathParams: KeyValueItem[] = [
+        { key: ':channelId', value: 'room/general', is_checked: 1 },
+      ];
+
+      const res = UrlUtils.applyPathParams(wsUrl, pathParams);
+      expect(res.url).toBe('wss://echo.websocket.events/chat/room%2Fgeneral/stream');
+      expect(res.appliedParams.channelId).toBe('room/general');
+    });
+
+    it('should interpolate variable placeholders before applying path parameters', () => {
+      const url = '/sse/:topic/events';
+      const pathParams: KeyValueItem[] = [
+        { key: 'topic', value: '{{env_topic}}', is_checked: 1 },
+      ];
+      const vars: Record<string, string> = { env_topic: 'news-live' };
+      const interp = (v: string) => v.replace(/\{\{([^{}]+)\}\}/g, (_, k) => vars[k.trim()] || '');
+
+      const res = UrlUtils.applyPathParams(url, pathParams, interp);
+      expect(res.url).toBe('/sse/news-live/events');
+      expect(res.appliedParams.topic).toBe('news-live');
+    });
+
+    it('should skip disabled or unchecked path parameters', () => {
+      const url = '/api/:id/:disabledId';
+      const pathParams: KeyValueItem[] = [
+        { key: 'id', value: 'active-1', is_checked: 1 },
+        { key: 'disabledId', value: 'skip-me', is_checked: -1 },
+      ];
+
+      const res = UrlUtils.applyPathParams(url, pathParams);
+      expect(res.url).toBe('/api/active-1/:disabledId');
+      expect(res.appliedParams['id']).toBe('active-1');
+      expect(res.appliedParams['disabledId']).toBeUndefined();
+    });
+
+    it('should return empty array when URL bar has no path parameters, clearing deleted params', () => {
+      const existing: KeyValueItem[] = [
+        { param_id: 'p1', key: 'userId', value: '123', description: 'User ID' },
+      ];
+      const params = UrlUtils.extractPathParams('/api/v1/users', existing);
+      expect(params).toEqual([]);
+    });
+
+    it('should not treat environment placeholders like {{baseUrl}} as path parameters', () => {
+      const url = '{{baseUrl}}/api/v1/orders/:orderId/items/{itemId}/{{env}}';
+      const params = UrlUtils.extractPathParams(url, []);
+      expect(params.map((p) => p.key)).toEqual(['orderId', 'itemId']);
+      expect(params.some((p) => p.key.includes('baseUrl') || p.key.includes('env'))).toBe(false);
+    });
+
+    it('should handle repeated query parameter keys assigning unique param_ids and preserving types', () => {
+      const url = 'https://api.example.com/filter?tag=news&tag=sports#details';
+      const res = UrlUtils.syncUrlToParams(url);
+      expect(res.cleanUrl).toBe('https://api.example.com/filter');
+      expect(res.queryParams.length).toBe(2);
+      expect(res.queryParams[0].key).toBe('tag');
+      expect(res.queryParams[0].value).toBe('news');
+      expect(res.queryParams[1].key).toBe('tag');
+      expect(res.queryParams[1].value).toBe('sports');
+      expect(res.queryParams[0].param_id).not.toBe(res.queryParams[1].param_id);
+    });
+  });
 });
+
 

@@ -1127,11 +1127,13 @@ export class DocShareServer {
           html += '<div class="table-container">';
           html +=   '<table><thead><tr><th>参数名</th><th>类型</th><th>必填</th><th>示例值</th><th>说明</th></tr></thead><tbody>';
           items.forEach(function(f) {
+            var isFile = f.type === 'file' || f.data_type === 'file';
+            var fileDisplay = isFile ? (f.file_name || f.file_path || f.value || '未选择文件') : (f.value || '-');
             html += '<tr>';
             html +=   '<td style="color: var(--accent); font-weight: 600; font-family: monospace;">' + escapeHtml(f.key) + '</td>';
             html +=   '<td style="color: var(--blue); font-family: monospace;">' + escapeHtml(f.type || 'text') + '</td>';
             html +=   '<td>' + ((f.is_required === 1 || f.required) ? '<span style="color: var(--red); font-weight: bold;">是</span>' : '<span style="color: var(--text-muted);">否</span>') + '</td>';
-            html +=   '<td style="font-family: monospace;">' + escapeHtml(f.value || '-') + '</td>';
+            html +=   '<td style="font-family: monospace;">' + escapeHtml(fileDisplay) + '</td>';
             html +=   '<td>' + escapeHtml(f.description || '-') + '</td>';
             html += '</tr>';
           });
@@ -1325,7 +1327,9 @@ export class DocShareServer {
             lines.push('| 参数名 | 类型 | 必填 | 示例值 | 说明 |');
             lines.push('| :--- | :--- | :--- | :--- | :--- |');
             items.forEach(function(f) {
-              lines.push('| ' + f.key + ' | ' + (f.type || 'text') + ' | ' + (f.is_required === 1 ? '是' : '否') + ' | ' + (f.value || '-') + ' | ' + (f.description || '-') + ' |');
+              var isFile = f.type === 'file' || f.data_type === 'file';
+              var fileDisplay = isFile ? (f.file_name || f.file_path || f.value || '未选择文件') : (f.value || '-');
+              lines.push('| ' + f.key + ' | ' + (f.type || 'text') + ' | ' + (f.is_required === 1 ? '是' : '否') + ' | ' + fileDisplay + ' | ' + (f.description || '-') + ' |');
             });
             lines.push('');
           }

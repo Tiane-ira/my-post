@@ -7,6 +7,7 @@ import { SettingsModal } from '../src/renderer/src/components/SettingsModal';
 import { ResponseViewer } from '../src/renderer/src/components/ResponseViewer';
 import { WebSocketWorkbench } from '../src/renderer/src/components/WebSocketWorkbench';
 import { ApiWorkbench } from '../src/renderer/src/components/ApiWorkbench';
+import { TitleBar } from '../src/renderer/src/components/TitleBar';
 import { EnvironmentInfo, GlobalParams, ProjectInfo, ApiTreeNode, HttpResponseResult, ApiDetail } from '../src/common/types';
 
 describe('Modal Rendering Diagnostics', () => {
@@ -255,6 +256,68 @@ describe('Modal Rendering Diagnostics', () => {
     }
   });
 
+  it('auto-positions EnvModal tab to currentEnv and displays current badge', () => {
+    const testEnvs: EnvironmentInfo[] = [
+      { env_id: 'env-dev', name: '开发环境', pre_url: 'http://dev.api.com', list: [] },
+      { env_id: 'env-prod', name: '生产环境', pre_url: 'https://api.com', list: [] },
+    ];
+    const globals: GlobalParams = { header: [], query: [], body: [], vars: [] };
+
+    // 1. When currentEnv is env-prod, html should focus on env-prod and show value pre_url
+    const htmlProd = renderToString(
+      <FeedbackProvider>
+        <EnvModal
+          isOpen={true}
+          onClose={() => {}}
+          envs={testEnvs}
+          currentEnv={testEnvs[1]}
+          globalParams={globals}
+          onSaveEnv={async () => {}}
+          onDeleteEnv={async () => {}}
+          onSaveGlobalParams={async () => {}}
+        />
+      </FeedbackProvider>
+    );
+    expect(htmlProd).toContain('https://api.com');
+    expect(htmlProd).toContain('当前');
+
+    // 2. When currentEnv is null (无环境), it should focus on Globals
+    const htmlNone = renderToString(
+      <FeedbackProvider>
+        <EnvModal
+          isOpen={true}
+          onClose={() => {}}
+          envs={testEnvs}
+          currentEnv={null}
+          globalParams={globals}
+          onSaveEnv={async () => {}}
+          onDeleteEnv={async () => {}}
+          onSaveGlobalParams={async () => {}}
+        />
+      </FeedbackProvider>
+    );
+    expect(htmlNone).toContain('全局变量 (Globals)');
+    expect(htmlNone).toContain('当前');
+
+    // 3. When initialEnvId is explicitly provided, it should respect initialEnvId
+    const htmlInitial = renderToString(
+      <FeedbackProvider>
+        <EnvModal
+          isOpen={true}
+          onClose={() => {}}
+          envs={testEnvs}
+          currentEnv={testEnvs[1]}
+          initialEnvId="env-dev"
+          globalParams={globals}
+          onSaveEnv={async () => {}}
+          onDeleteEnv={async () => {}}
+          onSaveGlobalParams={async () => {}}
+        />
+      </FeedbackProvider>
+    );
+    expect(htmlInitial).toContain('http://dev.api.com');
+  });
+
   it('renders ResponseViewer with cancel button in response body when loading', () => {
     let cancelCalled = false;
     const html = renderToString(
@@ -310,6 +373,11 @@ describe('Modal Rendering Diagnostics', () => {
             { key: 'token', value: 'xyz123', is_checked: 1, type: 'string' },
           ],
         },
+        path: {
+          parameter: [
+            { key: 'channel', value: 'general', is_checked: 1, type: 'string' },
+          ],
+        },
         header: {
           parameter: [
             { key: 'X-Client', value: 'MyPost', is_checked: 1, type: 'string' },
@@ -338,11 +406,14 @@ describe('Modal Rendering Diagnostics', () => {
       </FeedbackProvider>
     );
 
-    // Top-left: Parameters editing area
-    expect(html).toContain('Params');
+    // Top-left: Parameters editing area (Headers first, followed by Params, Path, Protocols, 心跳保活)
     expect(html).toContain('Headers');
+    expect(html).toContain('Params');
+    expect(html).toContain('Path');
     expect(html).toContain('Protocols');
     expect(html).toContain('心跳保活');
+    expect(html.indexOf('Headers')).toBeLessThan(html.indexOf('Params'));
+    expect(html.indexOf('Params')).toBeLessThan(html.indexOf('Path'));
 
     // Top-right: Message composer area
     expect(html).toContain('消息发送');
@@ -400,6 +471,36 @@ describe('Modal Rendering Diagnostics', () => {
     expect(html).toContain('ms');
     expect(html).toContain('Alice');
   });
+
+  it('renders TitleBar and supports environment and variable lookups without throwing', () => {
+    const currentEnv: EnvironmentInfo = {
+      env_id: 'e1',
+      name: 'Prod',
+      pre_url: 'https://api.example.com',
+      list: [
+        { param_id: 'p1', key: 'token', value: 'secret-123', is_checked: 1 },
+      ],
+    };
+    const globalParams: GlobalParams = {
+      vars: [{ param_id: 'g1', key: 'appId', value: 'app-999', is_checked: 1 }],
+      headers: [],
+    };
+    const html = renderToString(
+      <TitleBar
+        projects={[]}
+        currentProject={null}
+        onSelectProject={() => {}}
+        onOpenCreateProject={() => {}}
+        envs={[currentEnv]}
+        currentEnv={currentEnv}
+        globalParams={globalParams}
+        onSelectEnv={() => {}}
+        onOpenEnvModal={() => {}}
+      />
+    );
+    expect(html).toContain('Prod');
+  });
 });
+
 
 
