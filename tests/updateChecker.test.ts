@@ -36,18 +36,19 @@ describe('UpdateChecker Service', () => {
   });
 
   it('should expose valid current app version and repository constants', () => {
-    expect(APP_VERSION).toBe('20261024_01');
+    expect(APP_VERSION).toBe('20261024.1.0');
     expect(GITHUB_REPO_URL).toBe('https://github.com/Tiane-ira/my-post');
     expect(GITHUB_RELEASES_URL).toBe('https://github.com/Tiane-ira/my-post/releases');
   });
 
   it('should correctly compare versions with and without prefix', () => {
-    // New yyyyMMdd_序号 format
+    // New yyyyMMdd.序号.0 format
+    expect(compareVersions('20261024.2.0', '20261024.1.0')).toBeGreaterThan(0);
+    expect(compareVersions('v20261024.1.0', '20261024.1.0')).toBe(0);
+    expect(compareVersions('20261024.1.0', 'v20261024.1.0')).toBe(0);
+    expect(compareVersions('20261025.1.0', '20261024.1.0')).toBeGreaterThan(0);
+    expect(compareVersions('20261024.1.0', '2026.10.24')).toBeGreaterThan(0);
     expect(compareVersions('20261024_02', '20261024_01')).toBeGreaterThan(0);
-    expect(compareVersions('v20261024_01', '20261024_01')).toBe(0);
-    expect(compareVersions('20261024_01', 'v20261024_01')).toBe(0);
-    expect(compareVersions('20261025_01', '20261024_01')).toBeGreaterThan(0);
-    expect(compareVersions('20261024_01', '2026.10.24')).toBeGreaterThan(0);
 
     // Legacy date-dot format
     expect(compareVersions('2026.10.25', '2026.10.24')).toBeGreaterThan(0);

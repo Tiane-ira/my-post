@@ -1,4 +1,4 @@
-export const APP_VERSION = '20261024_01';
+export const APP_VERSION = '20261024.1.0';
 export const GITHUB_REPO_URL = 'https://github.com/Tiane-ira/my-post';
 export const GITHUB_RELEASES_URL = 'https://github.com/Tiane-ira/my-post/releases';
 export const GITHUB_API_LATEST_RELEASE = 'https://api.github.com/repos/Tiane-ira/my-post/releases/latest';
