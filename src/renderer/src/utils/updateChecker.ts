@@ -1,4 +1,4 @@
-export const APP_VERSION = '20261024.1.0';
+export const APP_VERSION = '1.0.0';
 export const GITHUB_REPO_URL = 'https://github.com/Tiane-ira/my-post';
 export const GITHUB_RELEASES_URL = 'https://github.com/Tiane-ira/my-post/releases';
 export const GITHUB_API_LATEST_RELEASE = 'https://api.github.com/repos/Tiane-ira/my-post/releases/latest';
@@ -21,7 +21,8 @@ export interface UpdateCheckResult {
 }
 
 /**
- * Compare two version strings (e.g., '20261024_01' vs '20261024_02' or '2026.10.24' vs '20261024_01')
+ * Compare two version strings following standard Semantic Versioning (SemVer: MAJOR.MINOR.PATCH)
+ * with backward-compatibility support for legacy date-based versions (e.g. '20261024.1.0', '2026.10.24').
  * Returns:
  *   > 0 if v1 > v2
  *   < 0 if v1 < v2
@@ -30,6 +31,23 @@ export interface UpdateCheckResult {
 export function compareVersions(v1: string, v2: string): number {
   const clean1 = (v1 || '').replace(/^[vV]/, '').trim();
   const clean2 = (v2 || '').replace(/^[vV]/, '').trim();
+
+  // If one is legacy date format (major >= 2000) and the other is standard SemVer (major < 2000),
+  // the standard SemVer format represents the current and newer versioning system.
+  const first1 = parseInt(clean1.split(/[._-]/)[0], 10);
+  const first2 = parseInt(clean2.split(/[._-]/)[0], 10);
+
+  const isLegacy1 = !isNaN(first1) && first1 >= 2000;
+  const isLegacy2 = !isNaN(first2) && first2 >= 2000;
+
+  if (!isLegacy1 && isLegacy2) {
+    // v1 is SemVer (newer system), v2 is legacy date-based
+    return 1;
+  }
+  if (isLegacy1 && !isLegacy2) {
+    // v1 is legacy date-based, v2 is SemVer (newer system)
+    return -1;
+  }
 
   const parts1 = clean1.split(/[._-]/).map((p) => {
     const num = parseInt(p, 10);

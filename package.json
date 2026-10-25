@@ -1,6 +1,6 @@
 {
   "name": "mypost",
-  "version": "20261024.1.0",
+  "version": "1.0.0",
   "description": "mypost - 专为个人打造的纯本地 API 调试与管理工具",
   "license": "MIT",
   "engines": {

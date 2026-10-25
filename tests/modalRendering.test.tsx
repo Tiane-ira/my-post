@@ -8,6 +8,8 @@ import { ResponseViewer } from '../src/renderer/src/components/ResponseViewer';
 import { WebSocketWorkbench } from '../src/renderer/src/components/WebSocketWorkbench';
 import { ApiWorkbench } from '../src/renderer/src/components/ApiWorkbench';
 import { TitleBar } from '../src/renderer/src/components/TitleBar';
+import { KeyValueTable } from '../src/renderer/src/components/KeyValueTable';
+import { InheritedParamItem } from '../src/common/paramUtils';
 import { EnvironmentInfo, GlobalParams, ProjectInfo, ApiTreeNode, HttpResponseResult, ApiDetail } from '../src/common/types';
 
 describe('Modal Rendering Diagnostics', () => {
@@ -499,6 +501,44 @@ describe('Modal Rendering Diagnostics', () => {
       />
     );
     expect(html).toContain('Prod');
+  });
+
+  it('renders KeyValueTable with simplified inherited parameters header and items', () => {
+    const inherited: InheritedParamItem[] = [
+      {
+        key: 'Authorization',
+        value: 'Bearer {{token}}',
+        source: 'auth',
+        sourceName: 'Auth (Bearer Token)',
+        description: '自动注入鉴权头',
+        is_checked: 1,
+      },
+      {
+        key: 'User-Agent',
+        value: 'mypost/1.0',
+        source: 'system',
+        sourceName: '系统预设客户端',
+        is_checked: 1,
+        overridden: true,
+      },
+    ];
+
+    const html = renderToString(
+      <KeyValueTable
+        items={[]}
+        onChange={() => {}}
+        inheritedItems={inherited}
+        availableVars={{
+          token: { key: 'token', value: 'secret-xyz', description: '' },
+        }}
+      />
+    );
+
+    // Verify simplified toggle bar
+    expect(html).toContain('继承参数');
+    expect(html).toContain('2');
+    expect(html).toContain('1 项已覆盖');
+    expect(html).toContain('展开');
   });
 });
 

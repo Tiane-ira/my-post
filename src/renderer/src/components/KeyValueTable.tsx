@@ -105,16 +105,8 @@ export const KeyValueTable: React.FC<KeyValueTableProps> = ({
     return { resolved, hasPlaceholder };
   };
 
-  const folderInheritedCount = React.useMemo(
-    () => safeInherited.filter((i) => i.source === 'folder').length,
-    [safeInherited]
-  );
-  const authInheritedCount = React.useMemo(
-    () => safeInherited.filter((i) => i.source === 'auth').length,
-    [safeInherited]
-  );
-  const systemInheritedCount = React.useMemo(
-    () => safeInherited.filter((i) => i.source === 'system').length,
+  const overriddenInheritedCount = React.useMemo(
+    () => safeInherited.filter((i) => i.overridden).length,
     [safeInherited]
   );
 
@@ -316,47 +308,43 @@ export const KeyValueTable: React.FC<KeyValueTableProps> = ({
 
         {/* Simplified & Clean Inherited Parameters Section */}
         {safeInherited.length > 0 && (
-          <div className="bg-subtle/20 border-b border-line">
+          <div className="bg-subtle/25 border-b border-line">
             <button
               type="button"
               onClick={() => setShowInherited(!showInherited)}
-              className="w-full px-3 py-1 flex items-center justify-between text-[11px] hover:bg-hover/40 transition cursor-pointer select-none text-left"
+              className="w-full px-3 py-1.5 flex items-center justify-between text-[11px] hover:bg-hover/50 transition cursor-pointer select-none text-left group"
             >
-              <div className="flex items-center gap-2">
-                {showInherited ? (
-                  <ChevronDown className="w-3 h-3 text-accent" />
-                ) : (
-                  <ChevronRight className="w-3 h-3 text-gray-400" />
-                )}
-                <span className="text-gray-300 font-medium text-[11px]">继承参数</span>
+              <div className="flex items-center gap-2 min-w-0">
+                <ChevronRight
+                  className={`w-3.5 h-3.5 text-gray-400 group-hover:text-accent transition-transform duration-200 shrink-0 ${
+                    showInherited ? 'rotate-90 text-accent' : ''
+                  }`}
+                />
+                <span className="text-gray-300 font-medium group-hover:text-foreground transition-colors">
+                  继承参数
+                </span>
                 <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-surface border border-line text-gray-400 font-mono">
                   {safeInherited.length}
                 </span>
-                <div className="flex items-center gap-1.5 text-[10px]">
-                  {folderInheritedCount > 0 && (
-                    <span className="text-amber-400/90 bg-amber-500/10 px-1.5 py-0.2 rounded font-sans">
-                      目录 {folderInheritedCount}
-                    </span>
-                  )}
-                  {authInheritedCount > 0 && (
-                    <span className="text-purple-400/90 bg-purple-500/10 px-1.5 py-0.2 rounded font-sans">
-                      鉴权 {authInheritedCount}
-                    </span>
-                  )}
-                  {systemInheritedCount > 0 && (
-                    <span className="text-sky-400/90 bg-sky-500/10 px-1.5 py-0.2 rounded font-sans">
-                      系统 {systemInheritedCount}
-                    </span>
-                  )}
-                </div>
+
+                {overriddenInheritedCount > 0 ? (
+                  <span className="text-[10px] text-amber-400/90 bg-amber-500/10 px-1.5 py-0.2 rounded font-sans">
+                    {`${overriddenInheritedCount} 项已覆盖`}
+                  </span>
+                ) : (
+                  <span className="text-[10px] text-gray-500 hidden sm:inline">
+                    · 来自上级目录、鉴权或系统配置
+                  </span>
+                )}
               </div>
-              <span className="text-[10px] text-gray-400 hover:text-accent transition">
+
+              <span className="text-[10px] text-gray-400 group-hover:text-accent transition-colors shrink-0">
                 {showInherited ? '收起' : '展开'}
               </span>
             </button>
 
             {showInherited && (
-              <div className="px-3 py-1.5 bg-canvas/30 border-t border-line/40 space-y-1">
+              <div className="px-3 py-1.5 bg-canvas/30 border-t border-line/40 space-y-1 max-h-60 overflow-y-auto">
                 {safeInherited.map((inh, iIdx) => {
                   const { resolved: resolvedVal, hasPlaceholder: hasValVar } = resolveInheritedValue(inh.value || '');
                   const { resolved: resolvedKey, hasPlaceholder: hasKeyVar } = resolveInheritedValue(inh.key || '');
@@ -364,72 +352,77 @@ export const KeyValueTable: React.FC<KeyValueTableProps> = ({
                   return (
                     <div
                       key={`inh-${inh.source}-${inh.key}-${iIdx}`}
-                      className={`flex items-center justify-between gap-3 px-2 py-1 rounded text-xs transition ${
+                      className={`flex items-center justify-between gap-3 px-2.5 py-1.5 rounded text-xs transition ${
                         inh.overridden
-                          ? 'opacity-40 bg-surface/20 line-through'
-                          : 'bg-surface/50 hover:bg-surface'
+                          ? 'opacity-45 bg-surface/30'
+                          : 'bg-surface/60 hover:bg-surface'
                       }`}
                     >
-                      <div className="flex items-center gap-2 min-w-0">
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
                         <span
-                          className={`text-[9px] font-bold px-1 py-0.2 rounded shrink-0 ${
+                          className={`text-[10px] px-1.5 py-0.2 rounded font-medium shrink-0 ${
                             inh.source === 'folder'
-                              ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
+                              ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
                               : inh.source === 'auth'
-                              ? 'bg-purple-500/15 text-purple-400 border border-purple-500/30'
-                              : 'bg-sky-500/15 text-sky-400 border border-sky-500/30'
+                              ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
+                              : 'bg-sky-500/10 text-sky-400 border border-sky-500/20'
                           }`}
                           title={inh.sourceName}
                         >
                           {inh.source === 'folder' ? '目录' : inh.source === 'auth' ? '鉴权' : '系统'}
                         </span>
+
                         <span
-                          className="font-mono font-semibold text-gray-200 truncate"
+                          className={`font-mono font-medium truncate ${
+                            inh.overridden ? 'line-through text-gray-400' : 'text-gray-200'
+                          }`}
                           title={hasKeyVar ? `原始参数名: ${inh.key}\n解析参数名: ${resolvedKey}` : inh.key}
                         >
                           {resolvedKey}
                         </span>
-                        <span className="text-gray-500 text-[11px]">=</span>
-                        {hasValVar ? (
-                          <div className="flex items-center gap-1.5 min-w-0 max-w-[320px]">
+
+                        <span className="text-gray-500 text-[11px] shrink-0">:</span>
+
+                        <div className="min-w-0 flex items-center gap-1.5">
+                          {hasValVar ? (
                             <span
-                              className="font-mono text-gray-400 text-[11px] bg-canvas/60 px-1 py-0.2 rounded border border-line/60 truncate max-w-[150px]"
-                              title={`原始占位变量: ${inh.value}`}
-                            >
-                              {inh.value}
-                            </span>
-                            <span className="text-gray-500 text-[10px] shrink-0">→</span>
-                            <span
-                              className="font-mono text-emerald-400 font-medium text-[11px] truncate max-w-[150px]"
-                              title={`变量已解析: ${resolvedVal}`}
+                              className="font-mono text-emerald-400 font-medium text-[11px] truncate max-w-[280px]"
+                              title={`原始占位变量: ${inh.value}\n变量已解析: ${resolvedVal}`}
                             >
                               {resolvedVal}
+                              <span className="ml-1 text-[10px] text-gray-400/80 font-sans">
+                                ({inh.value})
+                              </span>
                             </span>
-                          </div>
-                        ) : (
-                          <span
-                            className="font-mono text-gray-300 text-[11px] truncate max-w-[280px]"
-                            title={inh.value}
-                          >
-                            {inh.value || '<空>'}
-                          </span>
-                        )}
+                          ) : (
+                            <span
+                              className="font-mono text-gray-300 text-[11px] truncate max-w-[280px]"
+                              title={inh.value}
+                            >
+                              {inh.value || '<空>'}
+                            </span>
+                          )}
+                        </div>
+
                         {inh.overridden && (
-                          <span className="text-[9px] px-1 rounded bg-rose-500/15 text-rose-400 shrink-0 no-underline">
+                          <span
+                            className="text-[10px] px-1.5 py-0.2 rounded bg-rose-500/15 text-rose-400 shrink-0 font-sans"
+                            title="当前接口已定义同名参数，已覆盖此继承参数"
+                          >
                             已覆盖
                           </span>
                         )}
                       </div>
 
-                    <div
-                      className="text-[10px] text-gray-500 truncate text-right max-w-[240px] shrink-0"
-                      title={inh.description || inh.sourceName}
-                    >
-                      {inh.description || inh.sourceName}
+                      <div
+                        className="text-[10px] text-gray-500 truncate text-right max-w-[240px] shrink-0"
+                        title={inh.description || inh.sourceName}
+                      >
+                        {inh.description || inh.sourceName}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
               </div>
             )}
           </div>
