@@ -41,6 +41,50 @@ describe('FileDB Storage Engine', () => {
     expect(found?.name).toBe('测试项目 A');
   });
 
+  it('should update project name and intro', () => {
+    const created = fileDB.createProject('待更新项目', '旧描述');
+    const updated = fileDB.updateProject(created.project_id, {
+      name: '新项目名称',
+      intro: '新项目描述说明',
+    });
+
+    expect(updated).toBeDefined();
+    expect(updated?.name).toBe('新项目名称');
+    expect(updated?.intro).toBe('新项目描述说明');
+
+    const list = fileDB.listProjects();
+    const found = list.find((p) => p.project_id === created.project_id);
+    expect(found?.name).toBe('新项目名称');
+    expect(found?.intro).toBe('新项目描述说明');
+  });
+
+  it('should delete project from registry and optionally remove files', () => {
+    const p1 = fileDB.createProject('项目 1', '保留本地文件删除');
+    const p2 = fileDB.createProject('项目 2', '同时物理删除文件');
+
+    const path1 = fileDB.getProjectPath(p1.project_id);
+    const path2 = fileDB.getProjectPath(p2.project_id);
+
+    expect(fs.existsSync(path1)).toBe(true);
+    expect(fs.existsSync(path2)).toBe(true);
+
+    // Delete p1 without deleting files
+    const res1 = fileDB.deleteProject(p1.project_id, false);
+    expect(res1).toBe(true);
+    expect(fs.existsSync(path1)).toBe(true); // Files still exist on disk
+
+    let list = fileDB.listProjects();
+    expect(list.some((p) => p.project_id === p1.project_id)).toBe(false);
+
+    // Delete p2 with deleteFiles = true
+    const res2 = fileDB.deleteProject(p2.project_id, true);
+    expect(res2).toBe(true);
+    expect(fs.existsSync(path2)).toBe(false); // Files deleted on disk
+
+    list = fileDB.listProjects();
+    expect(list.some((p) => p.project_id === p2.project_id)).toBe(false);
+  });
+
   it('should save and retrieve project tree items', () => {
     const projects = fileDB.listProjects();
     const projectId = projects[0].project_id;

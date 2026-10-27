@@ -206,6 +206,85 @@ export class FileDB {
     };
   }
 
+  public updateProject(
+    projectId: string,
+    updates: { name?: string; intro?: string }
+  ): ProjectInfo | null {
+    const projDir = this.getProjectPath(projectId);
+    const projJsonPath = path.join(projDir, 'project.json');
+    let meta = this.safeReadJson<any>(projJsonPath, null);
+
+    const now = new Date().toISOString();
+    if (!meta) {
+      meta = {
+        project_id: projectId,
+        name: '未命名项目',
+        intro: '',
+        created_at: now,
+        updated_at: now,
+      };
+    }
+
+    if (typeof updates.name === 'string' && updates.name.trim()) {
+      meta.name = updates.name.trim();
+    }
+    if (typeof updates.intro === 'string') {
+      meta.intro = updates.intro.trim();
+    }
+    meta.updated_at = now;
+
+    this.atomicWriteJson(projJsonPath, meta);
+
+    // Also update registry file item if present
+    const list = this.safeReadJson<any[]>(this.registryFile, []);
+    const regItem = list.find((p) => p.project_id === projectId);
+    if (regItem) {
+      regItem.name = meta.name;
+      regItem.updated_at = now;
+      this.atomicWriteJson(this.registryFile, list);
+    }
+
+    return {
+      project_id: projectId,
+      name: meta.name,
+      intro: meta.intro,
+      path: projDir,
+      created_at: meta.created_at || now,
+      updated_at: meta.updated_at || now,
+    };
+  }
+
+  public deleteProject(projectId: string, deleteFiles: boolean = false): boolean {
+    const list = this.safeReadJson<any[]>(this.registryFile, []);
+    const regIndex = list.findIndex((p) => p.project_id === projectId);
+    const targetItem = regIndex !== -1 ? list[regIndex] : null;
+
+    const projDir = targetItem?.path || path.join(this.userDataDir, 'offline-data', projectId);
+
+    if (regIndex !== -1) {
+      list.splice(regIndex, 1);
+      this.atomicWriteJson(this.registryFile, list);
+    }
+
+    if (deleteFiles && projDir) {
+      try {
+        const resolvedPath = path.resolve(projDir);
+        const resolvedUserData = path.resolve(this.userDataDir);
+        const isSubDirOfUserData = resolvedPath.startsWith(resolvedUserData);
+        const projJsonPath = path.join(resolvedPath, 'project.json');
+
+        // Only delete on disk if path exists and has project.json or is inside userDataDir to avoid accidental deletion
+        if (fs.existsSync(resolvedPath) && (fs.existsSync(projJsonPath) || isSubDirOfUserData)) {
+          fs.rmSync(resolvedPath, { recursive: true, force: true });
+        }
+      } catch (err) {
+        console.warn(`[FileDB] Failed to delete project files at ${projDir}:`, err);
+      }
+    }
+
+    return true;
+  }
+
   public getProjectTree(projectId: string): ApiTreeNode[] {
     const projDir = this.getProjectPath(projectId);
     const treeFile = path.join(projDir, 'apis', 'index.json');

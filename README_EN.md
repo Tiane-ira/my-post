@@ -88,6 +88,7 @@ Pre-built binaries are automatically compiled and published through GitHub Actio
       └── api-1729178000001.json
   ```
 - **Git Native**: Initialize the project directory as a Git repository. Commit, branch, merge, and pull request your API specs just like source code.
+- **Project Lifecycle Management**: Easily switch between multiple local projects, edit project name and descriptions at any time, and choose between unbinding from mypost or permanently purging project files from local disk.
 - **Effortless Migration**: Backup or move to a new machine by simply copying the folder.
 
 ### 2. 🚀 Comprehensive HTTP / HTTPS Engine

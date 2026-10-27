@@ -1210,6 +1210,68 @@ export const App: React.FC = () => {
     setIsProjectModalOpen(false);
   };
 
+  const handleUpdateProject = async (
+    projectId: string,
+    updates: { name: string; intro: string }
+  ): Promise<ProjectInfo | null> => {
+    try {
+      const updated = await window.mypostAPI.updateProject(projectId, updates);
+      if (!updated) {
+        toast.error('更新项目失败');
+        return null;
+      }
+      setProjects((prev) =>
+        prev.map((p) =>
+          p.project_id === projectId
+            ? { ...p, name: updates.name, intro: updates.intro, updated_at: updated.updated_at }
+            : p
+        )
+      );
+      if (currentProject?.project_id === projectId) {
+        setCurrentProject((prev) =>
+          prev ? { ...prev, name: updates.name, intro: updates.intro, updated_at: updated.updated_at } : prev
+        );
+      }
+      toast.success(`项目「${updates.name}」已更新！`);
+      return updated;
+    } catch (e: any) {
+      toast.error(`更新项目失败: ${e?.message || e}`);
+      return null;
+    }
+  };
+
+  const handleDeleteProject = async (
+    projectId: string,
+    deleteFiles: boolean = false
+  ): Promise<boolean> => {
+    try {
+      const success = await window.mypostAPI.deleteProject(projectId, deleteFiles);
+      if (!success) {
+        toast.error('删除项目失败');
+        return false;
+      }
+      const updatedList = await window.mypostAPI.listProjects();
+      setProjects(updatedList || []);
+
+      if (currentProject?.project_id === projectId) {
+        if (updatedList && updatedList.length > 0) {
+          handleSwitchProject(updatedList[0]);
+        } else {
+          const freshList = await window.mypostAPI.listProjects();
+          setProjects(freshList);
+          if (freshList.length > 0) {
+            handleSwitchProject(freshList[0]);
+          }
+        }
+      }
+      toast.success('项目已成功删除');
+      return true;
+    } catch (e: any) {
+      toast.error(`删除项目失败: ${e?.message || e}`);
+      return false;
+    }
+  };
+
   return (
     <div className="w-screen h-screen flex flex-col bg-canvas select-none overflow-hidden">
       {/* Title Bar */}
@@ -1475,6 +1537,8 @@ export const App: React.FC = () => {
         currentProject={currentProject}
         onSelectProject={handleSwitchProject}
         onCreateProject={handleCreateProject}
+        onUpdateProject={handleUpdateProject}
+        onDeleteProject={handleDeleteProject}
         onRefreshProjects={loadProjects}
       />
 
@@ -1558,6 +1622,11 @@ export const App: React.FC = () => {
             onClose={() => setIsSettingsModalOpen(false)}
             currentProject={currentProject}
             treeItems={treeItems}
+            onOpenProjectModal={() => {
+              setIsSettingsModalOpen(false);
+              setIsProjectModalOpen(true);
+            }}
+            onUpdateProject={handleUpdateProject}
           />
         </ErrorBoundary>
       )}

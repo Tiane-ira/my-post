@@ -1,5 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { X, Plus, Folder, FolderOpen, Layers, Check, ExternalLink, HardDrive, RefreshCw } from 'lucide-react';
+import {
+  X,
+  Plus,
+  FolderOpen,
+  Layers,
+  Check,
+  ExternalLink,
+  HardDrive,
+  RefreshCw,
+  Edit2,
+  Trash2,
+  AlertTriangle,
+  Save,
+} from 'lucide-react';
 import { ProjectInfo, ApipostScannedProject } from '../../../common/types';
 import { useFeedback } from './FeedbackContext';
 
@@ -10,6 +23,8 @@ interface ProjectModalProps {
   currentProject: ProjectInfo | null;
   onSelectProject: (p: ProjectInfo) => void;
   onCreateProject: (name: string, intro: string, customPath?: string) => Promise<void>;
+  onUpdateProject?: (projectId: string, updates: { name: string; intro: string }) => Promise<ProjectInfo | null>;
+  onDeleteProject?: (projectId: string, deleteFiles: boolean) => Promise<boolean>;
   onRefreshProjects?: () => Promise<void>;
 }
 
@@ -20,6 +35,8 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
   currentProject,
   onSelectProject,
   onCreateProject,
+  onUpdateProject,
+  onDeleteProject,
   onRefreshProjects,
 }) => {
   const { toast } = useFeedback();
@@ -32,9 +49,22 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
   const [scannedApipostProjects, setScannedApipostProjects] = useState<ApipostScannedProject[]>([]);
   const [isScanning, setIsScanning] = useState(false);
 
+  // Project Edit state
+  const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editIntro, setEditIntro] = useState('');
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+
+  // Project Delete state
+  const [projectToDelete, setProjectToDelete] = useState<ProjectInfo | null>(null);
+  const [deleteLocalFiles, setDeleteLocalFiles] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+
   useEffect(() => {
     if (isOpen) {
       handleScanApipost();
+      setEditingProjectId(null);
+      setProjectToDelete(null);
     }
   }, [isOpen]);
 
@@ -92,14 +122,84 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
     }
   };
 
+  // Start editing a project
+  const handleStartEdit = (p: ProjectInfo) => {
+    setEditingProjectId(p.project_id);
+    setEditName(p.name);
+    setEditIntro(p.intro || '');
+  };
+
+  const handleCancelEdit = () => {
+    setEditingProjectId(null);
+    setEditName('');
+    setEditIntro('');
+  };
+
+  const handleSaveEdit = async (projectId: string) => {
+    if (!editName.trim()) {
+      toast.warning('项目名称不能为空');
+      return;
+    }
+    setIsSavingEdit(true);
+    try {
+      if (onUpdateProject) {
+        await onUpdateProject(projectId, {
+          name: editName.trim(),
+          intro: editIntro.trim(),
+        });
+      } else {
+        await window.mypostAPI.updateProject(projectId, {
+          name: editName.trim(),
+          intro: editIntro.trim(),
+        });
+        if (onRefreshProjects) {
+          await onRefreshProjects();
+        }
+        toast.success(`项目 "${editName.trim()}" 信息已更新！`);
+      }
+      setEditingProjectId(null);
+    } catch (err: any) {
+      toast.error(`保存失败: ${err?.message || err}`);
+    } finally {
+      setIsSavingEdit(false);
+    }
+  };
+
+  // Start deleting a project
+  const handleStartDelete = (p: ProjectInfo) => {
+    setProjectToDelete(p);
+    setDeleteLocalFiles(false);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!projectToDelete) return;
+    setIsDeleting(true);
+    try {
+      if (onDeleteProject) {
+        await onDeleteProject(projectToDelete.project_id, deleteLocalFiles);
+      } else {
+        await window.mypostAPI.deleteProject(projectToDelete.project_id, deleteLocalFiles);
+        if (onRefreshProjects) {
+          await onRefreshProjects();
+        }
+        toast.success(`项目 "${projectToDelete.name}" 已成功删除`);
+      }
+      setProjectToDelete(null);
+    } catch (err: any) {
+      toast.error(`删除失败: ${err?.message || err}`);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="w-[660px] max-h-[85vh] bg-surface border border-line rounded-2xl shadow-2xl flex flex-col overflow-hidden text-xs">
+      <div className="w-[680px] max-h-[88vh] bg-surface border border-line rounded-2xl shadow-2xl flex flex-col overflow-hidden text-xs relative">
         {/* Header */}
         <div className="h-12 px-5 bg-subtle border-b border-line flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2 font-bold text-sm text-foreground">
             <Layers className="w-4 h-4 text-accent" />
-            <span>本地离线项目管理与导入</span>
+            <span>本地项目管理、编辑与载入</span>
           </div>
           <button
             onClick={onClose}
@@ -179,7 +279,7 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-gray-400 mb-1">项目名称</label>
+                <label className="block text-gray-400 mb-1">项目名称 *</label>
                 <input
                   type="text"
                   placeholder="例如：商城接口项目"
@@ -230,6 +330,7 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
                   className="flex-1 bg-subtle border border-line rounded-md px-2.5 py-1.5 text-gray-300 font-mono focus:outline-none focus:border-accent"
                 />
                 <button
+                  type="button"
                   onClick={handleSelectDir}
                   className="px-3 py-1.5 bg-subtle hover:bg-hover border border-line text-gray-200 rounded-md font-medium transition flex items-center gap-1"
                 >
@@ -240,9 +341,10 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
             </div>
 
             <button
+              type="button"
               onClick={handleCreate}
               disabled={isCreating}
-              className="w-full py-1.5 rounded-md bg-accent hover:bg-accent-hover text-white font-bold transition disabled:opacity-50"
+              className="w-full py-1.5 rounded-md bg-accent hover:bg-accent-hover text-white font-bold transition disabled:opacity-50 shadow-sm"
             >
               {isCreating ? '创建中...' : '确认创建项目'}
             </button>
@@ -250,59 +352,248 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
 
           {/* Existing Projects List */}
           <div>
-            <div className="font-semibold text-gray-300 mb-2">已发现的本地项目</div>
-            <div className="max-h-52 overflow-y-auto space-y-1.5 border border-line rounded-xl p-2 bg-surface">
+            <div className="flex items-center justify-between mb-2">
+              <span className="font-semibold text-gray-300">
+                已管理的本地项目 ({projects.length})
+              </span>
+              <span className="text-[11px] text-gray-500">
+                支持编辑项目名称与描述，或彻底删除/解绑项目
+              </span>
+            </div>
+
+            <div className="max-h-60 overflow-y-auto space-y-2 border border-line rounded-xl p-2.5 bg-surface">
               {projects.map((p) => {
                 const isSelected = currentProject?.project_id === p.project_id;
+                const isEditing = editingProjectId === p.project_id;
+
                 return (
                   <div
                     key={p.project_id}
-                    className={`p-2.5 rounded-lg border flex items-center justify-between transition ${
+                    className={`rounded-lg border transition ${
                       isSelected
-                        ? 'bg-accent/10 border-accent/30 text-foreground'
-                        : 'bg-surface border-line text-gray-300 hover:border-line'
+                        ? 'bg-accent/10 border-accent/40 text-foreground'
+                        : 'bg-subtle/40 border-line text-gray-300 hover:border-line'
                     }`}
                   >
-                    <div className="flex-1 min-w-0 pr-3">
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-xs truncate">{p.name}</span>
-                        {isSelected && (
-                          <span className="px-1.5 py-0.2 rounded text-[10px] bg-accent text-white font-semibold">
-                            当前活跃
+                    {isEditing ? (
+                      /* Inline Edit Form */
+                      <div className="p-3 space-y-2.5 bg-subtle/80 rounded-lg">
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-accent text-xs flex items-center gap-1.5">
+                            <Edit2 className="w-3.5 h-3.5" />
+                            编辑项目信息
                           </span>
-                        )}
-                      </div>
-                      <div className="text-[11px] text-gray-500 font-mono truncate mt-0.5">
-                        {p.path}
-                      </div>
-                    </div>
+                          <span className="text-[10px] text-gray-500 font-mono">
+                            ID: {p.project_id}
+                          </span>
+                        </div>
 
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => window.mypostAPI.openPath(p.path)}
-                        className="p-1 rounded hover:bg-hover text-gray-400 hover:text-foreground transition"
-                        title="在系统文件管理器中打开"
-                      >
-                        <ExternalLink className="w-3.5 h-3.5" />
-                      </button>
-                      {!isSelected && (
-                        <button
-                          onClick={() => {
-                            onSelectProject(p);
-                            onClose();
-                          }}
-                          className="px-2.5 py-1 rounded bg-subtle hover:bg-accent hover:text-foreground border border-line text-xs text-gray-300 font-medium transition"
-                        >
-                          切换
-                        </button>
-                      )}
-                    </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-[11px] text-gray-400 mb-1">
+                              项目名称 *
+                            </label>
+                            <input
+                              type="text"
+                              value={editName}
+                              onChange={(e) => setEditName(e.target.value)}
+                              autoFocus
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  handleSaveEdit(p.project_id);
+                                } else if (e.key === 'Escape') {
+                                  handleCancelEdit();
+                                }
+                              }}
+                              className="w-full bg-surface border border-line rounded px-2 py-1 text-xs text-gray-200 focus:outline-none focus:border-accent"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] text-gray-400 mb-1">
+                              项目说明 / 描述
+                            </label>
+                            <input
+                              type="text"
+                              value={editIntro}
+                              onChange={(e) => setEditIntro(e.target.value)}
+                              placeholder="项目简要说明"
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  handleSaveEdit(p.project_id);
+                                } else if (e.key === 'Escape') {
+                                  handleCancelEdit();
+                                }
+                              }}
+                              className="w-full bg-surface border border-line rounded px-2 py-1 text-xs text-gray-200 focus:outline-none focus:border-accent"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-end gap-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={handleCancelEdit}
+                            disabled={isSavingEdit}
+                            className="px-2.5 py-1 rounded bg-hover hover:bg-line text-gray-300 text-xs transition"
+                          >
+                            取消
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleSaveEdit(p.project_id)}
+                            disabled={isSavingEdit}
+                            className="px-3 py-1 rounded bg-accent hover:bg-accent-hover text-white text-xs font-semibold flex items-center gap-1 transition"
+                          >
+                            <Save className="w-3 h-3" />
+                            {isSavingEdit ? '保存中...' : '保存修改'}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      /* Normal Display Card */
+                      <div className="p-2.5 flex items-center justify-between">
+                        <div className="flex-1 min-w-0 pr-3">
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-xs truncate text-foreground">
+                              {p.name}
+                            </span>
+                            {isSelected && (
+                              <span className="px-1.5 py-0.2 rounded text-[10px] bg-accent text-white font-semibold">
+                                当前活跃
+                              </span>
+                            )}
+                          </div>
+                          {p.intro && (
+                            <div className="text-[11px] text-gray-400 truncate mt-0.5">
+                              {p.intro}
+                            </div>
+                          )}
+                          <div className="text-[10px] text-gray-500 font-mono truncate mt-0.5">
+                            {p.path}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => handleStartEdit(p)}
+                            className="p-1.5 rounded hover:bg-hover text-gray-400 hover:text-accent transition"
+                            title="编辑项目信息"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleStartDelete(p)}
+                            className="p-1.5 rounded hover:bg-red-500/10 text-gray-400 hover:text-red-400 transition"
+                            title="删除项目"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => window.mypostAPI.openPath(p.path)}
+                            className="p-1.5 rounded hover:bg-hover text-gray-400 hover:text-foreground transition"
+                            title="在系统文件管理器中打开"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                          </button>
+
+                          {!isSelected && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onSelectProject(p);
+                                onClose();
+                              }}
+                              className="px-2.5 py-1 rounded bg-subtle hover:bg-accent hover:text-white border border-line text-xs text-gray-300 font-medium transition ml-1"
+                            >
+                              切换
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               })}
             </div>
           </div>
         </div>
+
+        {/* Delete Confirmation Modal Overlay */}
+        {projectToDelete && (
+          <div className="absolute inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="w-[460px] bg-surface border border-red-500/30 rounded-xl shadow-2xl p-4 space-y-3.5 animate-in fade-in zoom-in-95 duration-150">
+              <div className="flex items-center gap-2 text-red-400 font-bold text-sm">
+                <AlertTriangle className="w-4 h-4 text-red-400" />
+                <span>确认删除项目</span>
+              </div>
+
+              <div className="text-xs text-gray-300 space-y-2">
+                <p>
+                  你确定要删除项目 <strong className="text-white">「{projectToDelete.name}」</strong> 吗？
+                </p>
+                <div className="font-mono text-[11px] text-gray-400 bg-subtle p-2 rounded border border-line break-all">
+                  路径: {projectToDelete.path}
+                </div>
+
+                {projects.length === 1 && (
+                  <div className="p-2 bg-amber-500/10 border border-amber-500/20 text-amber-300 rounded text-[11px]">
+                    ⚠️ 这是当前唯一的项目。删除后将自动为您重置一个空的默认项目。
+                  </div>
+                )}
+
+                {currentProject?.project_id === projectToDelete.project_id && projects.length > 1 && (
+                  <div className="p-2 bg-blue-500/10 border border-blue-500/20 text-blue-300 rounded text-[11px]">
+                    ℹ️ 该项目是当前活跃项目，删除后将自动切换至其他可用项目。
+                  </div>
+                )}
+
+                <div className="pt-1">
+                  <label className="flex items-center gap-2 cursor-pointer select-none text-xs text-gray-300 hover:text-white">
+                    <input
+                      type="checkbox"
+                      checked={deleteLocalFiles}
+                      onChange={(e) => setDeleteLocalFiles(e.target.checked)}
+                      className="rounded accent-red-500 w-3.5 h-3.5"
+                    />
+                    <span className="text-red-400/90 font-medium">
+                      同时彻底删除本地磁盘文件夹及全部数据 (不可恢复)
+                    </span>
+                  </label>
+                  <p className="text-[10px] text-gray-500 ml-5 mt-0.5">
+                    未勾选时仅从 mypost 列表中解除管理，本地磁盘数据依然安全保留。
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-line">
+                <button
+                  type="button"
+                  onClick={() => setProjectToDelete(null)}
+                  disabled={isDeleting}
+                  className="px-3 py-1.5 rounded-lg bg-subtle hover:bg-hover border border-line text-gray-300 text-xs transition"
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmDelete}
+                  disabled={isDeleting}
+                  className="px-4 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white font-bold text-xs transition shadow-sm flex items-center gap-1.5"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  {isDeleting ? '正在删除...' : '确认删除'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

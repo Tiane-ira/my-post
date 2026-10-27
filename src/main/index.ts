@@ -338,6 +338,12 @@ function setupIPC() {
   ipcMain.handle('db:createProject', (_e, name: string, intro?: string, customPath?: string) =>
     fileDB.createProject(name, intro, customPath)
   );
+  ipcMain.handle('db:updateProject', (_e, projectId: string, updates: { name?: string; intro?: string }) =>
+    fileDB.updateProject(projectId, updates)
+  );
+  ipcMain.handle('db:deleteProject', (_e, projectId: string, deleteFiles?: boolean) =>
+    fileDB.deleteProject(projectId, deleteFiles)
+  );
   ipcMain.handle('db:scanApipostProjects', () => fileDB.scanApipostProjects());
   ipcMain.handle('db:importApipostProject', (_e, projectId: string, customPath?: string) =>
     fileDB.importApipostProject(projectId, customPath)

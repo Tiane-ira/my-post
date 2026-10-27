@@ -27,6 +27,8 @@ import {
   AlertCircle,
   ArrowUpRight,
   Download,
+  Edit2,
+  Save,
 } from 'lucide-react';
 import { ProjectInfo, ApiTreeNode } from '../../../common/types';
 import { useTheme } from '../utils/themeManager';
@@ -47,6 +49,8 @@ interface SettingsModalProps {
   onClose: () => void;
   currentProject: ProjectInfo | null;
   treeItems: ApiTreeNode[];
+  onOpenProjectModal?: () => void;
+  onUpdateProject?: (projectId: string, updates: { name: string; intro: string }) => Promise<ProjectInfo | null>;
 }
 
 type SettingsTab = 'project' | 'appearance' | 'system' | 'network' | 'about';
@@ -56,11 +60,53 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onClose,
   currentProject,
   treeItems,
+  onOpenProjectModal,
+  onUpdateProject,
 }) => {
   const { toast } = useFeedback();
   const { themeMode, setThemeMode, themePresetId, setThemePreset, presets, activePreset } = useTheme();
   const [activeTab, setActiveTab] = useState<SettingsTab>('project');
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  // Project editing state
+  const [isEditingProject, setIsEditingProject] = useState(false);
+  const [editProjName, setEditProjName] = useState('');
+  const [editProjIntro, setEditProjIntro] = useState('');
+  const [isSavingProj, setIsSavingProj] = useState(false);
+
+  const handleStartEditProject = () => {
+    if (!currentProject) return;
+    setEditProjName(currentProject.name || '');
+    setEditProjIntro(currentProject.intro || '');
+    setIsEditingProject(true);
+  };
+
+  const handleSaveEditProject = async () => {
+    if (!currentProject) return;
+    if (!editProjName.trim()) {
+      toast.warning('项目名称不能为空');
+      return;
+    }
+    setIsSavingProj(true);
+    try {
+      if (onUpdateProject) {
+        await onUpdateProject(currentProject.project_id, {
+          name: editProjName.trim(),
+          intro: editProjIntro.trim(),
+        });
+      } else {
+        await window.mypostAPI.updateProject(currentProject.project_id, {
+          name: editProjName.trim(),
+          intro: editProjIntro.trim(),
+        });
+      }
+      setIsEditingProject(false);
+    } catch (err: any) {
+      toast.error(`更新项目失败: ${err?.message || err}`);
+    } finally {
+      setIsSavingProj(false);
+    }
+  };
 
   useEffect(() => {
     if (!isOpen) return;
@@ -339,24 +385,104 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <div className="space-y-4">
                     {/* Project Basic Info Card */}
                     <div className="bg-subtle/50 border border-line rounded-xl p-4 space-y-3">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2.5">
-                          <div className="w-9 h-9 rounded-lg bg-orange-500/15 text-accent border border-accent/30 flex items-center justify-center font-bold text-sm">
-                            {typeof currentProject.name === 'string' && currentProject.name ? currentProject.name.substring(0, 1).toUpperCase() : 'P'}
+                      {isEditingProject ? (
+                        <div className="space-y-3 bg-surface p-3 rounded-lg border border-accent/40">
+                          <div className="font-bold text-xs text-accent flex items-center gap-1.5">
+                            <Edit2 className="w-3.5 h-3.5" />
+                            编辑当前项目信息
                           </div>
-                          <div>
-                            <div className="font-bold text-sm text-foreground">
-                              {typeof currentProject.name === 'string' ? currentProject.name : '未命名项目'}
+                          <div className="space-y-2">
+                            <div>
+                              <label className="block text-[11px] text-gray-400 mb-1">项目名称 *</label>
+                              <input
+                                type="text"
+                                value={editProjName}
+                                onChange={(e) => setEditProjName(e.target.value)}
+                                autoFocus
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') handleSaveEditProject();
+                                  if (e.key === 'Escape') setIsEditingProject(false);
+                                }}
+                                className="w-full bg-subtle border border-line rounded px-2.5 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-accent"
+                              />
                             </div>
-                            <div className="text-xs text-gray-400">
-                              {typeof currentProject.intro === 'string' && currentProject.intro ? currentProject.intro : '暂无项目描述'}
+                            <div>
+                              <label className="block text-[11px] text-gray-400 mb-1">项目说明 / 描述</label>
+                              <input
+                                type="text"
+                                value={editProjIntro}
+                                onChange={(e) => setEditProjIntro(e.target.value)}
+                                placeholder="输入项目简短描述"
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') handleSaveEditProject();
+                                  if (e.key === 'Escape') setIsEditingProject(false);
+                                }}
+                                className="w-full bg-subtle border border-line rounded px-2.5 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-accent"
+                              />
                             </div>
+                          </div>
+                          <div className="flex items-center justify-end gap-2 pt-1">
+                            <button
+                              type="button"
+                              onClick={() => setIsEditingProject(false)}
+                              disabled={isSavingProj}
+                              className="px-2.5 py-1 rounded bg-hover hover:bg-line text-gray-300 text-xs transition"
+                            >
+                              取消
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleSaveEditProject}
+                              disabled={isSavingProj}
+                              className="px-3 py-1 rounded bg-accent hover:bg-accent-hover text-white text-xs font-semibold flex items-center gap-1 transition"
+                            >
+                              <Save className="w-3 h-3" />
+                              {isSavingProj ? '保存中...' : '保存'}
+                            </button>
                           </div>
                         </div>
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-                          活动项目中
-                        </span>
-                      </div>
+                      ) : (
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-9 h-9 rounded-lg bg-orange-500/15 text-accent border border-accent/30 flex items-center justify-center font-bold text-sm">
+                              {typeof currentProject.name === 'string' && currentProject.name ? currentProject.name.substring(0, 1).toUpperCase() : 'P'}
+                            </div>
+                            <div>
+                              <div className="font-bold text-sm text-foreground">
+                                {typeof currentProject.name === 'string' ? currentProject.name : '未命名项目'}
+                              </div>
+                              <div className="text-xs text-gray-400">
+                                {typeof currentProject.intro === 'string' && currentProject.intro ? currentProject.intro : '暂无项目描述'}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={handleStartEditProject}
+                              className="px-2.5 py-1 rounded bg-subtle hover:bg-hover border border-line text-gray-300 hover:text-accent flex items-center gap-1 text-xs transition"
+                              title="修改项目名称与描述"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                              编辑信息
+                            </button>
+                            {onOpenProjectModal && (
+                              <button
+                                type="button"
+                                onClick={onOpenProjectModal}
+                                className="px-2.5 py-1 rounded bg-subtle hover:bg-hover border border-line text-gray-300 hover:text-foreground flex items-center gap-1 text-xs transition"
+                                title="切换或新建项目"
+                              >
+                                <Layers className="w-3.5 h-3.5" />
+                                切换/管理项目
+                              </button>
+                            )}
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                              活动项目中
+                            </span>
+                          </div>
+                        </div>
+                      )}
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 pt-2 border-t border-line text-xs">
                         <div className="flex items-center justify-between p-2 rounded-lg bg-surface border border-line">

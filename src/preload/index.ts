@@ -32,6 +32,12 @@ export const apiBridge = {
   listProjects: (): Promise<ProjectInfo[]> => ipcRenderer.invoke('db:listProjects'),
   createProject: (name: string, intro?: string, customPath?: string): Promise<ProjectInfo> =>
     ipcRenderer.invoke('db:createProject', name, intro, customPath),
+  updateProject: (
+    projectId: string,
+    updates: { name?: string; intro?: string }
+  ): Promise<ProjectInfo | null> => ipcRenderer.invoke('db:updateProject', projectId, updates),
+  deleteProject: (projectId: string, deleteFiles?: boolean): Promise<boolean> =>
+    ipcRenderer.invoke('db:deleteProject', projectId, deleteFiles),
   scanApipostProjects: (): Promise<ApipostScannedProject[]> =>
     ipcRenderer.invoke('db:scanApipostProjects'),
   importApipostProject: (projectId: string, customPath?: string): Promise<ProjectInfo | null> =>
