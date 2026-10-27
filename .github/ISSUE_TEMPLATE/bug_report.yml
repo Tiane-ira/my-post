@@ -1,0 +1,63 @@
+name: 🐛 Bug 报告 (Bug Report)
+description: 提交软件在使用过程中出现的错误或异常现象
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢你帮助我们改进 mypost！请在提交 Bug 之前先查看是否已有相同的 Issue。
+  - type: input
+    id: version
+    attributes:
+      label: mypost 版本 (mypost Version)
+      description: 例如 v1.0.0
+      placeholder: v1.0.0
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: 操作系统与架构 (Operating System & Architecture)
+      options:
+        - Windows 10/11 x64
+        - Windows 10/11 arm64
+        - macOS (Apple Silicon M1/M2/M3/M4)
+        - Ubuntu / Debian (DEB / AppImage)
+        - 统信 UOS / 银河麒麟 Kylin
+        - 其他 Linux 发行版
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: 问题描述 (Description)
+      description: 清晰简要地描述遇到的 Bug 或问题
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 复现步骤 (Steps to Reproduce)
+      description: 详细说明如何重现该问题
+      value: |
+        1. 打开项目...
+        2. 点击...
+        3. 发送请求...
+        4. 出现错误...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为 (Expected Behavior)
+      description: 描述你预期程序应该如何运行
+    validations:
+      required: false
+  - type: textarea
+    id: logs_or_screenshots
+    attributes:
+      label: 运行日志或截图 (Screenshots / Console Logs)
+      description: 粘贴开发者工具控制台报错（Ctrl+Shift+I）或截图
+    validations:
+      required: false

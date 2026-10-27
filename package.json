@@ -1,7 +1,7 @@
 {
   "name": "mypost",
   "version": "1.0.0",
-  "description": "mypost - 专为个人打造的纯本地 API 调试与管理工具",
+  "description": "mypost - 专为开发者打造的纯本地、高颜值 API 调试与接口管理工具（Postman / Apifox 纯本地离线替代方案）。支持 HTTP、SSE 流式、WebSocket 长连接与 OpenAPI/Swagger 导入导出。",
   "license": "MIT",
   "engines": {
     "node": ">=24.0.0"
@@ -182,8 +182,40 @@
       "repo": "my-post"
     }
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "mypost",
+    "api-client",
+    "postman-alternative",
+    "apifox-alternative",
+    "insomnia-alternative",
+    "bruno-alternative",
+    "rest-client",
+    "offline-first",
+    "local-first",
+    "api-debug",
+    "api-testing",
+    "websocket",
+    "websocket-client",
+    "sse",
+    "server-sent-events",
+    "openapi",
+    "swagger",
+    "curl",
+    "developer-tools",
+    "electron",
+    "api调试",
+    "接口测试",
+    "本地离线"
+  ],
+  "author": "Tiane-ira <https://github.com/Tiane-ira>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Tiane-ira/my-post.git"
+  },
+  "homepage": "https://github.com/Tiane-ira/my-post#readme",
+  "bugs": {
+    "url": "https://github.com/Tiane-ira/my-post/issues"
+  },
   "type": "module",
   "devDependencies": {
     "@apidevtools/swagger-parser": "^13.1.0",

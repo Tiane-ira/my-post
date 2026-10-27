@@ -1,0 +1,30 @@
+name: 💡 功能建议 (Feature Request)
+description: 为 mypost 提出新的功能构想或体验改进建议
+title: "[Feat]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢你为 mypost 提出宝贵的建议！
+  - type: textarea
+    id: problem
+    attributes:
+      label: 你遇到了什么痛点？(Is your feature request related to a problem?)
+      description: 清楚描述当前面临的困难，例如“当我在调试某个接口时...”
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: 期望的解决方案 (Describe the solution you'd like)
+      description: 详细描述你期望 mypost 如何实现或支持该功能
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 备选或参考方案 (Describe alternatives you've considered)
+      description: 是否有其他工具的实现可供参考？
+    validations:
+      required: false
